@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Город N</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="screen-wrapper">
+    <main class="screen-frame" data-current-screen="start">
+      <!-- ====================================================================
+           ЛЕВЫЕ ТРИ КОЛОНКИ: ИНФОРМАЦИОННЫЙ БЛОК (Сменяется без перезагрузки)
+           ==================================================================== -->
+      <section class="info-col" id="main-info-col">
+        <!-- Экран 1: Старт (Арт) -->
+        <div class="screen-view active" data-screen-view="start">
+          <div class="start-art">
+            <img src="assets/intersect.png" alt="Город N — Экологический симулятор" id="start-image">
+          </div>
+        </div>
+
+        <!-- Экран 2: Инструкция (Видео и текст) -->
+        <div class="screen-view" data-screen-view="instruction">
+          <div class="video-container">
+            <video id="instruction-video" class="instruction-player" src="assets/instruction.mp4" muted playsinline controls>
+              Ваш браузер не поддерживает воспроизведение видео.
+            </video>
+          </div>
+          <article class="instruction-text">
+            <p>
+              Добро пожаловать в симуляционную деловую игру «Экологическая ситуация в городе N». 
+              Город N сталкивается с острой экологической дилеммой: городские очистные сооружения выработали свой ресурс, 
+              что ставит под угрозу экосистему реки и здоровье десятков тысяч граждан.
+            </p>
+            <p>
+              В процессе переговоров сталкиваются интересы пяти ключевых сторон: Администрации города, Промышленного холдинга, 
+              Экологического НКО, Правительства региона и Инициативной группы жителей. Каждая роль обладает собственными 
+              бюджетными возможностями, регуляторными рычагами и скрытыми мотивами.
+            </p>
+            <p>
+              Ваша задача на этапе переговоров — достичь компромиссного соглашения (протокола реконструкции) либо отстоять 
+              ключевые позиции своей стороны. Любое принятое или отклонённое решение передаётся в математическую модель последствий, 
+              рассчитывающую будущее города на горизонте 10 лет.
+            </p>
+          </article>
+        </div>
+
+        <!-- Экран 3: Настройка роли (Серые прямоугольники как в Figma) -->
+        <div class="screen-view" data-screen-view="settings">
+          <div class="settings-placeholders">
+            <div class="placeholder-rect placeholder-rect-1"></div>
+            <div class="placeholder-rect placeholder-rect-2"></div>
+            <div class="placeholder-rect placeholder-rect-3"></div>
+            <div class="placeholder-rect placeholder-rect-4"></div>
+          </div>
+        </div>
+
+        <!-- Экран 4: Дебаты (Лента реплик снизу вверх) -->
+        <div class="screen-view" data-screen-view="debate">
+          <div class="debate-feed" id="debate-feed">
+            <!-- Реплики появляются снизу и уходят вверх -->
+          </div>
+        </div>
+
+        <!-- Экран 5: Итоги через 10 лет (Чистое фото и отчет) -->
+        <div class="screen-view" data-screen-view="final">
+          <div class="final-photo-container">
+            <img id="consequence-photo" src="assets/consequences/compromise.png" alt="Город N через 10 лет">
+          </div>
+          <article class="final-text" id="final-text-content">
+            <p id="summary-general">
+              <strong>Общегородской статус:</strong> К 2036 году проект комплексной модернизации очистных сооружений Города N успешно завершён. 
+              Концентрация загрязняющих веществ в акватории реки снизилась на 82%, возвращена способность экосистемы к естественному самоочищению. 
+              Запахи сероводорода в жилых кварталах устранены полностью.
+            </p>
+            <p id="summary-role">
+              <strong>Судьба стороны (Администрация):</strong> Мэрия выполнила целевые показатели нацпроекта «Экология». 
+              Город избежал федеральных штрафов и бюджетного коллапса, доверие граждан к муниципальным институтам укрепилось, 
+              а индекс инвестиционной привлекательности города N поднялся на 14 пунктов.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           ПРАВЫЕ ДВЕ КОЛОНКИ: МЕНЮ (Неподвижный пульт управления)
+           ==================================================================== -->
+      <aside class="menu-col">
+        <!-- Меню: Старт -->
+        <div class="menu-view active" data-menu-view="start">
+          <h1 class="menu-title">СИТУАЦИЯ В ГОРОДЕ N</h1>
+          <nav class="menu-grid">
+            <div class="menu-items-group">
+              <a href="#settings" class="menu-link">ИГРАТЬ</a>
+              <a href="#instruction" class="menu-link">ИНСТРУКЦИЯ</a>
+              <button type="button" class="menu-btn" id="exit-btn">ВЫХОД</button>
+            </div>
+          </nav>
+        </div>
+
+        <!-- Меню: Инструкция -->
+        <div class="menu-view" data-menu-view="instruction">
+          <h1 class="menu-title">ИНСТРУКЦИЯ</h1>
+          <nav class="menu-grid">
+            <div class="menu-items-group">
+              <a href="#settings" class="menu-link">ИГРАТЬ</a>
+              <a href="#start" class="menu-link">НАЗАД</a>
+            </div>
+          </nav>
+        </div>
+
+        <!-- Меню: Настройка роли -->
+        <div class="menu-view" data-menu-view="settings">
+          <h1 class="menu-title">НАСТРОЙТЕ РОЛЬ</h1>
+          <nav class="menu-grid">
+            <div class="menu-items-group" id="roles-nav">
+              <button type="button" class="menu-btn active" data-role="administration">АДМИНИСТРАЦИЯ</button>
+              <button type="button" class="menu-btn" data-role="holding">ХОЛДИНГ</button>
+              <button type="button" class="menu-btn" data-role="region">РЕГИОН</button>
+              <button type="button" class="menu-btn" data-role="ngo">ЭКО НКО</button>
+              <button type="button" class="menu-btn" data-role="citizens">ЖИТЕЛИ</button>
+            </div>
+            <div class="menu-action-col">
+              <a href="#debate" class="menu-link" id="submit-settings-btn">ГОТОВО</a>
+            </div>
+          </nav>
+        </div>
+
+        <!-- Меню: Дебаты -->
+        <div class="menu-view" data-menu-view="debate">
+          <h1 class="menu-title">ИДУТ ДЕБАТЫ</h1>
+          <nav class="menu-grid">
+            <div class="menu-items-group">
+              <button type="button" class="menu-btn" id="pause-btn">ПАУЗА</button>
+              <a href="#settings" class="menu-link">ПАРАМЕТРЫ</a>
+              <a href="#final" class="menu-link" id="stop-btn">СТОП</a>
+            </div>
+          </nav>
+        </div>
+
+        <!-- Меню: Итоги -->
+        <div class="menu-view" data-menu-view="final">
+          <h1 class="menu-title">ЧТО СТАЛО ЧЕРЕЗ 10 ЛЕТ</h1>
+          <nav class="menu-grid">
+            <div class="menu-items-group" id="final-roles-nav">
+              <button type="button" class="menu-btn active" data-role="administration">АДМИНИСТРАЦИЯ</button>
+              <button type="button" class="menu-btn" data-role="holding">ХОЛДИНГ</button>
+              <button type="button" class="menu-btn" data-role="region">РЕГИОН</button>
+              <button type="button" class="menu-btn" data-role="ngo">ЭКО НКО</button>
+              <button type="button" class="menu-btn" data-role="citizens">ЖИТЕЛИ</button>
+            </div>
+            <div class="menu-action-col">
+              <a href="#start" class="menu-link">ЗАВЕРШИТЬ</a>
+            </div>
+          </nav>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

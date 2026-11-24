@@ -1,0 +1,418 @@
+/* ==========================================================================
+   ЭКОЛОГИЧЕСКАЯ ИГРА-СИМУЛЯТОР: ГОРОД N
+   Чистый CSS: Сетка 5 колонок, отступы 40px, межколонник 40px, шрифт Helvetica
+   ========================================================================== */
+
+@charset "UTF-8";
+
+/* Базовый сброс */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #ffffff;
+  font-family: "Helvetica", Arial, sans-serif;
+  color: #000000;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Оболочка на весь экран без внешних рамок и подложек */
+.screen-wrapper {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #ffffff;
+}
+
+/* Основной контейнер экрана: строго от краев экрана, отступы по 40px */
+.screen-frame {
+  width: 100vw;
+  height: 100vh;
+  background-color: #ffffff;
+  border: none;
+  padding: 40px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 40px;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   КОЛОНКИ (5 колонок: 3 левые - информация, 2 правые - меню)
+   ========================================================================== */
+
+/* Левые три колонки (информация) - от левого края 1-й до правого края 3-й */
+.info-col {
+  grid-column: 1 / 4;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Кастомный аккуратный скроллбар для информационного блока */
+.info-col::-webkit-scrollbar {
+  width: 4px;
+}
+.info-col::-webkit-scrollbar-track {
+  background: transparent;
+}
+.info-col::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+}
+.info-col::-webkit-scrollbar-thumb:hover {
+  background: #999999;
+}
+
+/* Правые две колонки (меню) - от левого края 4-й до правого края 5-й */
+.menu-col {
+  grid-column: 4 / 6;
+  height: 100%;
+  position: relative;
+}
+
+/* ==========================================================================
+   SPA: ПЕРЕКЛЮЧЕНИЕ ЭКРАНОВ БЕЗ ПЕРЕЗАГРУЗКИ
+   ========================================================================== */
+.screen-view {
+  display: none;
+  width: 100%;
+}
+
+.screen-view.active {
+  display: block;
+}
+
+.screen-view[data-screen-view="start"].active {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen-view[data-screen-view="debate"].active {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-view {
+  display: none;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.menu-view.active {
+  display: block;
+}
+
+.menu-items-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ==========================================================================
+   ТИПОГРАФИКА И МЕНЮ
+   ========================================================================== */
+
+/* Заголовок меню: нижняя граница букв всегда стоит ровно НА горизонтальной линии центра страницы (50%) */
+.menu-title {
+  position: absolute;
+  left: 0;
+  bottom: 50%;
+  margin: 0;
+  padding: 0;
+  font-family: "Helvetica", Arial, sans-serif;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 40px;
+  letter-spacing: -0.5px;
+  text-transform: uppercase;
+  color: #000000;
+  max-width: 540px;
+  word-break: break-word;
+}
+
+/* Сетка меню: кнопки начинаются ровно под заголовком ниже центральной линии (первая колонка 294px) */
+.menu-grid {
+  position: absolute;
+  left: 0;
+  top: calc(50% + 24px);
+  width: 100%;
+  display: grid;
+  grid-template-columns: 294px auto;
+  align-items: start;
+}
+
+/* Пункты меню: 15px, Regular в покое, Bold при Hover */
+.menu-link,
+.menu-btn {
+  display: inline-block;
+  font-family: "Helvetica", Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 17px;
+  text-transform: uppercase;
+  color: #000000;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  margin: 0;
+  transition: font-weight 0.1s ease;
+  user-select: none;
+}
+
+.menu-link:hover,
+.menu-btn:hover,
+.menu-link.active,
+.menu-btn.active {
+  font-weight: 700;
+}
+
+/* Вторичная колонка действий в меню (например кнопка ГОТОВО или СТОП) */
+.menu-action-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+/* ==========================================================================
+   ЭКРАН 1: START (Главный экран)
+   ========================================================================== */
+.start-art {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.start-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ==========================================================================
+   ЭКРАН 2: INSTRUCTION (Инструкция)
+   ========================================================================== */
+.video-container {
+  width: 100%;
+  height: 474px;
+  max-height: 50vh;
+  margin-bottom: 30px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background-color: #000000;
+}
+
+.instruction-player {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.instruction-text,
+.final-text {
+  font-family: "Helvetica", Arial, sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 32px;
+  letter-spacing: 0.8px;
+  color: #000000;
+}
+
+.instruction-text p,
+.final-text p {
+  margin-bottom: 20px;
+}
+
+/* ==========================================================================
+   ЭКРАН 3: SETTINGS (Настройка роли: серые прямоугольники-заглушки как в Figma)
+   ========================================================================== */
+.settings-placeholders {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  width: 100%;
+}
+
+.placeholder-rect {
+  width: 100%;
+  background-color: #d9d9d9;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.placeholder-rect-1 {
+  height: 117px;
+}
+
+.placeholder-rect-2 {
+  height: 191px;
+}
+
+.placeholder-rect-3 {
+  height: 324px;
+}
+
+.placeholder-rect-4 {
+  height: 100px;
+}
+
+/* ==========================================================================
+   ЭКРАН 4: DEBATE (Дебаты и стрим реплик: снизу вверх)
+   ========================================================================== */
+.debate-feed {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 52px;
+  padding-bottom: 20px;
+}
+
+.speech-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transform: translateY(30px);
+  animation: speechAppear 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes speechAppear {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.speech-role {
+  font-family: "Helvetica", Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 30px;
+  letter-spacing: -0.2px;
+  color: #000000;
+  margin: 0;
+  padding: 0;
+}
+
+.speech-text {
+  font-family: "Helvetica", Arial, sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 32px;
+  letter-spacing: 0.8px;
+  color: #000000;
+  word-break: break-word;
+  margin: 0;
+  padding: 0;
+}
+
+/* ==========================================================================
+   ЭКРАН 5: FINAL (Итоги через 10 лет)
+   ========================================================================== */
+.final-photo-container {
+  width: 100%;
+  height: 474px;
+  background-color: #d9d9d9;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.final-photo-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ==========================================================================
+   АДАПТИВНОСТЬ ДЛЯ РАЗНЫХ РАЗРЕШЕНИЙ (от 4:3 до 16:9 и мобильных)
+   ========================================================================== */
+@media (max-width: 1200px) {
+  .screen-frame {
+    padding: 24px;
+    gap: 24px;
+  }
+  .menu-title {
+    font-size: 32px;
+    line-height: 34px;
+  }
+  .speech-role {
+    font-size: 24px;
+    line-height: 32px;
+  }
+  .speech-text,
+  .instruction-text,
+  .final-text {
+    font-size: 18px;
+    line-height: 25px;
+  }
+}
+
+@media (max-width: 860px) {
+  .screen-wrapper {
+    height: auto;
+    min-height: 100vh;
+    padding: 0;
+  }
+  .screen-frame {
+    display: flex;
+    flex-direction: column-reverse;
+    height: auto;
+    min-height: 100vh;
+    padding: 24px;
+    gap: 32px;
+    border: none;
+  }
+  .info-col {
+    grid-column: auto;
+    height: auto;
+  }
+  .menu-col {
+    grid-column: auto;
+    height: auto;
+  }
+  .menu-view {
+    height: auto;
+    position: static;
+  }
+  .menu-title {
+    position: static;
+    bottom: auto;
+    margin-bottom: 20px;
+  }
+  .menu-grid {
+    position: static;
+    top: auto;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}

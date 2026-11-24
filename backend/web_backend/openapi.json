@@ -1,0 +1,1093 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Дебаты города N",
+    "version": "0.2.0",
+    "description": "Запуск партии, ход переговоров и прогноз последствий для игры «Город N»."
+  },
+  "paths": {
+    "/api/v1/scenario": {
+      "get": {
+        "operationId": "getScenario",
+        "summary": "Настройки пилотного сценария",
+        "responses": {
+          "200": {
+            "description": "Сценарий",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scenario"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "title": "Ситуация в городе N",
+                      "briefing": "После аварии на предприятии холдинга река загрязнена. Пять сторон обсуждают восстановление очистных и безопасную воду для жителей.",
+                      "roles": [
+                        {
+                          "id": "city_administration",
+                          "name": "Администрация",
+                          "interest": "Обеспечить горожан водой и привлечь финансирование без непосильных расходов."
+                        },
+                        {
+                          "id": "industrial_holding",
+                          "name": "Промкомплекс",
+                          "interest": "Сохранить работу предприятия и договориться о распределении расходов."
+                        },
+                        {
+                          "id": "regional_government",
+                          "name": "Регион",
+                          "interest": "Разрешить конфликт и добиться участия холдинга в финансировании."
+                        },
+                        {
+                          "id": "city_residents",
+                          "name": "Жители",
+                          "interest": "Получить безопасную воду без роста тарифов."
+                        },
+                        {
+                          "id": "environmental_ngo",
+                          "name": "Эко-НКО",
+                          "interest": "Добиться независимого контроля и открытых данных о состоянии реки."
+                        }
+                      ],
+                      "total_cost_rub": 270000000,
+                      "max_bargaining_turns": 15
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games": {
+      "post": {
+        "operationId": "startGame",
+        "summary": "Запустить партию",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRequest"
+              },
+              "examples": {
+                "defaults": {
+                  "value": {}
+                },
+                "studentStrategies": {
+                  "value": {
+                    "strategies": {
+                      "city_residents": "Добивайтесь чистой воды и заморозки тарифов."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Партия поставлена на выполнение",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartResponse"
+                },
+                "examples": {
+                  "queued": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "queued",
+                      "status_url": "/api/v1/games/demo-run-001"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "URL состояния партии",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверная роль или тип стратегии",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid": {
+                    "value": {
+                      "code": "invalid_game_input",
+                      "message": "Проверьте поля стратегий."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}": {
+      "parameters": [
+        {
+          "name": "game_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getGame",
+        "summary": "Состояние и итог партии",
+        "responses": {
+          "200": {
+            "description": "Состояние партии",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Game"
+                },
+                "examples": {
+                  "queued": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "queued"
+                    }
+                  },
+                  "running": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "running"
+                    }
+                  },
+                  "acceptedWithDeficit": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "completed",
+                      "result": {
+                        "accepted": true,
+                        "total_cost_rub": 270000000.0,
+                        "pledged_rub": 260000000.0,
+                        "deficit_rub": 10000000.0,
+                        "contributions": [
+                          {
+                            "role_id": "city_administration",
+                            "pledged_rub": 30000000.0,
+                            "spent_on_conditions_rub": 20000000.0
+                          },
+                          {
+                            "role_id": "industrial_holding",
+                            "pledged_rub": 140000000.0,
+                            "spent_on_conditions_rub": 0.0
+                          },
+                          {
+                            "role_id": "regional_government",
+                            "pledged_rub": 90000000.0,
+                            "spent_on_conditions_rub": 0
+                          },
+                          {
+                            "role_id": "city_residents",
+                            "pledged_rub": 0,
+                            "spent_on_conditions_rub": 0
+                          },
+                          {
+                            "role_id": "environmental_ngo",
+                            "pledged_rub": 0,
+                            "spent_on_conditions_rub": 0.0
+                          }
+                        ],
+                        "conditions": [
+                          {
+                            "id": "guilt",
+                            "owner_role_id": "regional_government",
+                            "value": "shared"
+                          },
+                          {
+                            "id": "plant_mode",
+                            "owner_role_id": "industrial_holding",
+                            "value": "100%"
+                          },
+                          {
+                            "id": "timeline",
+                            "owner_role_id": "industrial_holding",
+                            "value": 36
+                          },
+                          {
+                            "id": "tariffs_freeze",
+                            "owner_role_id": "city_administration",
+                            "value": false
+                          },
+                          {
+                            "id": "tax_relief",
+                            "owner_role_id": "regional_government",
+                            "value": false
+                          },
+                          {
+                            "id": "open_sensors",
+                            "owner_role_id": "environmental_ngo",
+                            "value": true
+                          },
+                          {
+                            "id": "protest_moratorium",
+                            "owner_role_id": "city_residents",
+                            "value": false
+                          },
+                          {
+                            "id": "water_supply",
+                            "owner_role_id": "city_administration",
+                            "value": true
+                          }
+                        ],
+                        "votes": [
+                          {
+                            "role_id": "city_administration",
+                            "value": "for",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "industrial_holding",
+                            "value": "for",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "regional_government",
+                            "value": "for",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "city_residents",
+                            "value": "for",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "environmental_ngo",
+                            "value": "for",
+                            "status": "ok"
+                          }
+                        ],
+                        "transcript": [
+                          {
+                            "turn": 1,
+                            "phase": "opening",
+                            "role_id": "city_administration",
+                            "text": "Предлагаем обсудить финансирование очистных и доставку питьевой воды.",
+                            "actions": [],
+                            "status": "ok"
+                          }
+                        ],
+                        "consequences": {
+                          "outcome_id": "compromise",
+                          "outcome_title": "Компромисс",
+                          "executed_rub": 260000000.0,
+                          "commissioning_month": 60,
+                          "report_markdown": "Компромисс. Исполнено 260 млн ₽.",
+                          "herald_text": "Вестник города N: через 10 лет после общественных слушаний — исход «Компромисс». Очистные введены, общий проект состоялся. Разногласия сторон, сроки или полнота исполнения обязательств потребовали компромисса. Протокол принят. Заявленные взносы: 260 млн ₽ из 270 млн ₽. Фактически внесено: 260 млн ₽. Сроки: обещано 36 мес., очистные введены на 60-м месяце. Показатели города: экологический риск — низкий; недовольство и риск протестов — низкие; доверие к администрации — восстановлено; негатив к холдингу — снижен до 60% и ниже; рабочие места — под давлением.",
+                          "image_url": null
+                        },
+                        "negotiation_report_markdown": "# Итоги переговоров\n\nРезультаты голосования и состояние сметы.",
+                        "budget_closed": false
+                      }
+                    }
+                  },
+                  "rejected": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "completed",
+                      "result": {
+                        "accepted": false,
+                        "total_cost_rub": 270000000.0,
+                        "pledged_rub": 260000000.0,
+                        "deficit_rub": 10000000.0,
+                        "contributions": [
+                          {
+                            "role_id": "city_administration",
+                            "pledged_rub": 30000000.0,
+                            "spent_on_conditions_rub": 20000000.0
+                          },
+                          {
+                            "role_id": "industrial_holding",
+                            "pledged_rub": 140000000.0,
+                            "spent_on_conditions_rub": 0.0
+                          },
+                          {
+                            "role_id": "regional_government",
+                            "pledged_rub": 90000000.0,
+                            "spent_on_conditions_rub": 0
+                          },
+                          {
+                            "role_id": "city_residents",
+                            "pledged_rub": 0,
+                            "spent_on_conditions_rub": 0
+                          },
+                          {
+                            "role_id": "environmental_ngo",
+                            "pledged_rub": 0,
+                            "spent_on_conditions_rub": 0.0
+                          }
+                        ],
+                        "conditions": [
+                          {
+                            "id": "guilt",
+                            "owner_role_id": "regional_government",
+                            "value": "shared"
+                          },
+                          {
+                            "id": "plant_mode",
+                            "owner_role_id": "industrial_holding",
+                            "value": "100%"
+                          },
+                          {
+                            "id": "timeline",
+                            "owner_role_id": "industrial_holding",
+                            "value": 36
+                          },
+                          {
+                            "id": "tariffs_freeze",
+                            "owner_role_id": "city_administration",
+                            "value": false
+                          },
+                          {
+                            "id": "tax_relief",
+                            "owner_role_id": "regional_government",
+                            "value": false
+                          },
+                          {
+                            "id": "open_sensors",
+                            "owner_role_id": "environmental_ngo",
+                            "value": true
+                          },
+                          {
+                            "id": "protest_moratorium",
+                            "owner_role_id": "city_residents",
+                            "value": false
+                          },
+                          {
+                            "id": "water_supply",
+                            "owner_role_id": "city_administration",
+                            "value": true
+                          }
+                        ],
+                        "votes": [
+                          {
+                            "role_id": "city_administration",
+                            "value": "against",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "industrial_holding",
+                            "value": "for",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "regional_government",
+                            "value": "for",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "city_residents",
+                            "value": "abstain",
+                            "status": "ok"
+                          },
+                          {
+                            "role_id": "environmental_ngo",
+                            "value": "abstain",
+                            "status": "ok"
+                          }
+                        ],
+                        "transcript": [
+                          {
+                            "turn": 1,
+                            "phase": "opening",
+                            "role_id": "city_administration",
+                            "text": "Предлагаем обсудить финансирование очистных и доставку питьевой воды.",
+                            "actions": [],
+                            "status": "ok"
+                          }
+                        ],
+                        "consequences": {
+                          "outcome_id": "each_for_self",
+                          "outcome_title": "Каждый сам за себя",
+                          "executed_rub": 115000000.0,
+                          "commissioning_month": null,
+                          "report_markdown": "Каждый сам за себя. Исполнено 115 млн ₽.",
+                          "herald_text": "Вестник города N: через 10 лет после общественных слушаний — исход «Каждый сам за себя». Общий протокол не принят. Отдельные стороны частично выполняют то, что заявляли, но без общего плана и контроля. Улучшения медленные и частичные, ответственность размыта. Протокол не принят. Заявленные взносы: 260 млн ₽ из 270 млн ₽. Фактически внесено: 115 млн ₽. Сроки: обещано 36 мес., очистные не введены за 10 лет. Показатели города: экологический риск — высокий; недовольство и риск протестов — высокие; доверие к администрации — подорвано; негатив к холдингу — остаётся около 90%; рабочие места — под давлением.",
+                          "image_url": null
+                        },
+                        "negotiation_report_markdown": "# Итоги переговоров\n\nРезультаты голосования и состояние сметы.",
+                        "budget_closed": false
+                      }
+                    }
+                  },
+                  "failed": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "failed",
+                      "error": {
+                        "code": "provider_unavailable",
+                        "message": "Не удалось завершить партию. Запустите новую попытку."
+                      },
+                      "progress": {
+                        "transcript": [],
+                        "report_markdown": "Игра прервана."
+                      }
+                    }
+                  },
+                  "cancelled": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "cancelled",
+                      "progress": {
+                        "transcript": [],
+                        "report_markdown": "Игра отменена."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Запуск не найден",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "notFound": {
+                    "value": {
+                      "code": "game_not_found",
+                      "message": "Партия не найдена."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/cancel": {
+      "parameters": [
+        {
+          "name": "game_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "cancelGame",
+        "summary": "Остановить партию",
+        "responses": {
+          "200": {
+            "description": "Партия отменена",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelledGame"
+                },
+                "examples": {
+                  "result": {
+                    "value": {
+                      "game_id": "demo-run-001",
+                      "status": "cancelled",
+                      "progress": {
+                        "transcript": [],
+                        "report_markdown": "Игра отменена."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Запуск не найден",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "result": {
+                    "value": {
+                      "code": "game_not_found",
+                      "message": "Партия не найдена."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Запуск уже завершён",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "result": {
+                    "value": {
+                      "code": "game_cannot_cancel",
+                      "message": "Партию уже нельзя отменить."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RoleId": {
+        "type": "string",
+        "enum": [
+          "city_administration",
+          "industrial_holding",
+          "regional_government",
+          "city_residents",
+          "environmental_ngo"
+        ]
+      },
+      "Role": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/RoleId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "interest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "interest"
+        ],
+        "additionalProperties": false
+      },
+      "Scenario": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "briefing": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "minItems": 5,
+            "maxItems": 5
+          },
+          "total_cost_rub": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "max_bargaining_turns": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "title",
+          "briefing",
+          "roles",
+          "total_cost_rub",
+          "max_bargaining_turns"
+        ],
+        "additionalProperties": false
+      },
+      "StartRequest": {
+        "type": "object",
+        "properties": {
+          "strategies": {
+            "type": "object",
+            "properties": {
+              "city_administration": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
+              },
+              "industrial_holding": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
+              },
+              "regional_government": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
+              },
+              "city_residents": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
+              },
+              "environmental_ngo": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "StartResponse": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "const": "queued"
+          },
+          "status_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "game_id",
+          "status",
+          "status_url"
+        ],
+        "additionalProperties": false
+      },
+      "PendingGame": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running"
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          }
+        },
+        "required": [
+          "game_id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "CompletedGame": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "const": "completed"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Result"
+          }
+        },
+        "required": [
+          "game_id",
+          "status",
+          "result"
+        ],
+        "additionalProperties": false
+      },
+      "FailedGame": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "const": "failed"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          }
+        },
+        "required": [
+          "game_id",
+          "status",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Game": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PendingGame"
+          },
+          {
+            "$ref": "#/components/schemas/CompletedGame"
+          },
+          {
+            "$ref": "#/components/schemas/FailedGame"
+          },
+          {
+            "$ref": "#/components/schemas/CancelledGame"
+          }
+        ]
+      },
+      "Contribution": {
+        "type": "object",
+        "properties": {
+          "role_id": {
+            "$ref": "#/components/schemas/RoleId"
+          },
+          "pledged_rub": {
+            "type": "number",
+            "minimum": 0
+          },
+          "spent_on_conditions_rub": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "role_id",
+          "pledged_rub",
+          "spent_on_conditions_rub"
+        ],
+        "additionalProperties": false
+      },
+      "Condition": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "owner_role_id": {
+            "$ref": "#/components/schemas/RoleId"
+          },
+          "value": {
+            "type": [
+              "boolean",
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "owner_role_id",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "Vote": {
+        "type": "object",
+        "properties": {
+          "role_id": {
+            "$ref": "#/components/schemas/RoleId"
+          },
+          "value": {
+            "enum": [
+              "for",
+              "against",
+              "abstain",
+              null
+            ]
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "invalid_response"
+            ]
+          }
+        },
+        "required": [
+          "role_id",
+          "value",
+          "status"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "invalid_response"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "const": null
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "value": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "Turn": {
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "opening",
+              "bargaining",
+              "last_call",
+              "voting"
+            ]
+          },
+          "role_id": {
+            "$ref": "#/components/schemas/RoleId"
+          },
+          "text": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "invalid_response"
+            ]
+          }
+        },
+        "required": [
+          "turn",
+          "phase",
+          "role_id",
+          "text",
+          "actions",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "Consequences": {
+        "type": "object",
+        "properties": {
+          "outcome_id": {
+            "type": "string"
+          },
+          "outcome_title": {
+            "type": "string"
+          },
+          "executed_rub": {
+            "type": "number",
+            "minimum": 0
+          },
+          "commissioning_month": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "report_markdown": {
+            "type": "string"
+          },
+          "herald_text": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "outcome_id",
+          "outcome_title",
+          "executed_rub",
+          "commissioning_month",
+          "report_markdown",
+          "herald_text",
+          "image_url"
+        ],
+        "additionalProperties": false
+      },
+      "Result": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "total_cost_rub": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "pledged_rub": {
+            "type": "number",
+            "minimum": 0
+          },
+          "deficit_rub": {
+            "type": "number",
+            "minimum": 0
+          },
+          "contributions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Contribution"
+            },
+            "minItems": 5,
+            "maxItems": 5
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            }
+          },
+          "votes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Vote"
+            },
+            "minItems": 5,
+            "maxItems": 5
+          },
+          "transcript": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Turn"
+            }
+          },
+          "consequences": {
+            "$ref": "#/components/schemas/Consequences"
+          },
+          "negotiation_report_markdown": {
+            "type": "string"
+          },
+          "budget_closed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted",
+          "total_cost_rub",
+          "pledged_rub",
+          "deficit_rub",
+          "contributions",
+          "conditions",
+          "votes",
+          "transcript",
+          "consequences",
+          "negotiation_report_markdown",
+          "budget_closed"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "Progress": {
+        "type": "object",
+        "properties": {
+          "transcript": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Turn"
+            }
+          },
+          "report_markdown": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transcript",
+          "report_markdown"
+        ],
+        "additionalProperties": false
+      },
+      "CancelledGame": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "const": "cancelled"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          }
+        },
+        "required": [
+          "game_id",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

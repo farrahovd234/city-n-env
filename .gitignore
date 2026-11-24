@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.venv-web/
+.env
+.env.*
+!.env.example
+gpt2giga.env
+games/
+node_modules/
+.DS_Store
+.scratch/
+/tmp/
+/output/
