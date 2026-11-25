@@ -1,0 +1,21 @@
+[project]
+name = "city-n-env-backend"
+version = "0.1.0"
+description = "Backend for the City N negotiation game"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "chromadb==1.5.9",
+    "fastapi==0.162.0",
+    "httpx==0.28.1",
+    "langchain-core==1.7.1",
+    "langchain-openai==1.7.3",
+    "openai==2.54.0",
+    "pydantic==2.13.5",
+    "python-dotenv==1.2.4",
+    "uvicorn==0.54.0",
+]
+
+[project.optional-dependencies]
+gigachat = [
+    "gpt2giga==0.3.2",
+]

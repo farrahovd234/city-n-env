@@ -6,6 +6,7 @@ __pycache__/
 .env.*
 !.env.example
 gpt2giga.env
+/backend/gpt2giga*.log
 games/
 node_modules/
 .DS_Store
