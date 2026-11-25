@@ -19,20 +19,15 @@
    uv sync --locked --extra gigachat
    ```
 
-2. Создайте файл `backend/gpt2giga.env`. В `GIGACHAT_CREDENTIALS` вставьте
-   **Authorization Key** из личного кабинета GigaChat. `GIGACHAT_API_PERS` подходит
-   для личного доступа. Для аккаунта организации укажите scope своего аккаунта.
+2. Если файла `backend/gpt2giga.env` ещё нет, скопируйте шаблон из папки `backend/`.
 
-   ```dotenv
-   GIGACHAT_CREDENTIALS=ваш_ключ_авторизации_GigaChat
-   GIGACHAT_SCOPE=GIGACHAT_API_PERS
-   GIGACHAT_MODEL=GigaChat-3-Lightning
-   GPT2GIGA_MODE=DEV
-   GPT2GIGA_HOST=127.0.0.1
-   GPT2GIGA_PORT=8090
-   GPT2GIGA_ENABLE_API_KEY_AUTH=True
-   GPT2GIGA_API_KEY=city-n-local
+   ```bash
+   cp gpt2giga.env.example gpt2giga.env
    ```
+
+   В `GIGACHAT_CREDENTIALS` вставьте **Authorization Key** из личного кабинета
+   GigaChat. `GIGACHAT_API_PERS` подходит для личного доступа. Для аккаунта
+   организации укажите scope своего аккаунта. [Шаблон](backend/gpt2giga.env.example)
 
 3. Из папки `backend/` запустите Gpt2Giga и оставьте терминал открытым.
 
