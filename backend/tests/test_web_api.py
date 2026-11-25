@@ -5,6 +5,7 @@ import base64
 from functools import partial
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -48,6 +49,15 @@ def fixture_model(provider, role_id, temperature):
 
 
 class WebGameAPITests(unittest.IsolatedAsyncioTestCase):
+    async def test_illustrations_are_enabled_by_default(self):
+        with patch.dict(os.environ):
+            os.environ.pop("CITY_N_IMAGES", None)
+            app = create_app(embedding_base_url="")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://api.test") as api:
+            response = await api.get("/api/v1/illustrations/open_river.png")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+
     async def run_case(self, case_name, *, images=True):
         case = CASES[case_name]
         inputs = case["inputs"]

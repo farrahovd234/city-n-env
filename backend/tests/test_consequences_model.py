@@ -286,12 +286,10 @@ class ReportTests(unittest.TestCase):
     def test_newspaper_is_ready_to_read_and_uses_the_game_facts(self):
         result = forecast(game(FAIR_SPLIT, ALL_FOR, REFERENCE))
         newspaper = result["herald_text"]
-        self.assertIn("Вестник города N", newspaper)
-        self.assertIn("исход «Открытая река»", newspaper)
+        self.assertIn("Очистные города N заработали на 36-м месяце", newspaper)
         self.assertEqual(len(newspaper.splitlines()), 1)
-        self.assertIn("Протокол принят", newspaper)
-        self.assertIn("270 млн ₽", newspaper)
-        self.assertIn("очистные введены на 36-м месяце", newspaper)
+        self.assertIn("В строительство вложили все 270 млн ₽", newspaper)
+        self.assertIn("Открытые датчики публикуют замеры реки", newspaper)
         self.assertNotIn("Напиши", newspaper)
         for name, data in EVERY_OUTCOME.items():
             with self.subTest(outcome=name):
@@ -302,10 +300,24 @@ class ReportTests(unittest.TestCase):
 
     def test_newspaper_distinguishes_promised_funding_from_execution_after_rejection(self):
         result = forecast(game(FAIR_SPLIT, {ADMIN: True, HOLDING: True}, REFERENCE))
-        self.assertIn("Протокол не принят", result["herald_text"])
-        self.assertRegex(result["herald_text"], r"Заявленные взносы[^\n]*(?<![\d,])270 млн ₽ из 270 млн ₽")
-        self.assertIn("Фактически внесено: 0 млн ₽", result["herald_text"])
-        self.assertIn("очистные не введены за 10 лет", result["herald_text"])
+        self.assertIn("Стороны не приняли протокол", result["herald_text"])
+        self.assertIn("На стройку обещали 270 млн ₽", result["herald_text"])
+        self.assertIn("в общую смету не поступило ни рубля", result["herald_text"])
+        self.assertIn("мэрия частично организовала подвоз питьевой воды", result["herald_text"])
+        self.assertNotIn("НКО частично запустила", result["herald_text"])
+
+    def test_newspaper_explains_a_gap_between_water_delivery_and_commissioning(self):
+        split = {ADMIN: 10 * MLN, HOLDING: 120 * MLN, REGION: 90 * MLN}
+        result = forecast(game(split, ALL_FOR, REFERENCE))
+        self.assertIn("на 60-м месяце вместо 36-го", result["herald_text"])
+        self.assertIn("220 млн ₽ из 270 млн ₽", result["herald_text"])
+        self.assertIn("Подвоз питьевой воды закончился после 48-го месяца", result["herald_text"])
+
+    def test_newspaper_mentions_unfulfilled_condition_when_plant_opens_on_time(self):
+        split = {HOLDING: 180 * MLN, REGION: 90 * MLN}
+        result = forecast(game(split, {**ALL_FOR, ADMIN: False}, {**REFERENCE, "water_supply": False}))
+        self.assertEqual(result["outcome"]["name"], "Компромисс")
+        self.assertIn("Условие «Заморозка тарифов ЖКХ» выполнили лишь частично", result["herald_text"])
 
     def test_report_covers_criterion_six_without_unproven_harm(self):
         for name, result_data in EVERY_OUTCOME.items():

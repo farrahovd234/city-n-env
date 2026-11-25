@@ -52,7 +52,7 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
                embedding_api_key=None, game_options=None) -> FastAPI:
     runs = Path(runs_dir or os.getenv("CITY_N_RUNS_DIR") or ROOT / "games" / "web").expanduser().resolve()
     factory = model_factory or configured_model
-    images = os.getenv("CITY_N_IMAGES") == "1" if images is None else images
+    images = os.getenv("CITY_N_IMAGES", "1") == "1" if images is None else images
     embedding_url = os.getenv("CITY_N_EMBEDDING_BASE_URL", "") if embedding_base_url is None else embedding_base_url
     embedding_key = os.getenv("CITY_N_EMBEDDING_API_KEY", "") if embedding_api_key is None else embedding_api_key
     options = {**CONFIG["game"], **(game_options or {})}

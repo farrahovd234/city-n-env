@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .catalog import (ACHIEVED, CONDITIONS, FAILED, GUILT, GUILT_LABELS, MOMENT_LABELS, PARTLY, PLANT_MODE,
-                      RECONSTRUCTION_LABEL, RECONSTRUCTION_OWNER, ROLE_LABELS, SUBSYSTEM_LABELS, TARIFFS, TIMELINE,
-                      VOTE_LABELS, WATER, WATER_MAX_MONTHS)
+from .catalog import (ACHIEVED, CONDITIONS, FAILED, FULL, GUILT, GUILT_LABELS, MIN_COVERAGE_TO_BUILD, MOMENT_LABELS,
+                      PARTIAL, PARTLY, PLANT_MODE, RECONSTRUCTION_LABEL, RECONSTRUCTION_OWNER, ROLE_LABELS, SENSORS,
+                      SUBSYSTEM_LABELS, TARIFFS, TIMELINE, VOTE_LABELS, WATER, WATER_MAX_MONTHS)
 
 MLN = 1_000_000
 
@@ -160,19 +160,70 @@ def render_report(result: dict[str, Any]) -> str:
 
 
 def render_herald_text(result: dict[str, Any]) -> str:
-    """Готовая газета одним абзацем: описание исхода и факты партии, без вызова LLM."""
+    """Один абзац о том, что произошло в городе по итогам партии."""
     outcome, protocol = result["outcome"], result["protocol"]
-    decision = "Протокол принят" if protocol["accepted"] else "Протокол не принят"
+    conditions = result["execution"]["conditions"]
     pledged = sum(protocol["contributions"].values())
-    year_10 = result["state"]["year_10"]["subsystems"]
-    sentences = [
-        f"Вестник города N: через 10 лет после общественных слушаний — исход «{outcome['name']}».",
-        outcome["description"], f"{decision}.",
-        f"Заявленные взносы: {mln(pledged)} из {mln(protocol['total_cost'])}.",
-        f"Фактически внесено: {mln(result['paid'])}.", f"Сроки: {terms(result)}.",
-        "Показатели города: " + "; ".join(f"{name.lower()} — {words[year_10[subsystem]]}"
-                                          for name, subsystem, words in INDICATORS) + ".",
-    ]
+    if not protocol["accepted"]:
+        sentences = ["Стороны не приняли протокол, и через десять лет после слушаний у города N так и нет "
+                     "обновлённых очистных."]
+        if pledged:
+            sentences.append(f"На стройку обещали {mln(pledged)}, но в общую смету не поступило ни рубля.")
+        measures = {
+            WATER: "мэрия частично организовала подвоз питьевой воды",
+            PLANT_MODE: "холдинг частично снизил мощность комбината",
+            SENSORS: "НКО частично запустила открытый мониторинг реки",
+        }
+        started = [text for condition, text in measures.items() if conditions.get(condition) == PARTIAL]
+        if started:
+            sentences.append("При этом " + ", ".join(started) + ".")
+        else:
+            sentences.append("Самостоятельных мер по реке и питьевой воде стороны не предприняли.")
+        return " ".join(sentences)
+
+    month, promised = result["commissioning_month"], result["promised_months"]
+    if month is None:
+        lead = "Очистные города N так и не заработали за десять лет после слушаний."
+    elif month > promised:
+        lead = f"Очистные города N заработали на {month}-м месяце вместо {promised}-го, указанного в протоколе."
+    else:
+        lead = f"Очистные города N заработали на {month}-м месяце, в обещанный срок."
+
+    paid, total = result["paid"], protocol["total_cost"]
+    if paid == total:
+        funding = f"В строительство вложили все {mln(total)} по принятому протоколу."
+    elif paid > total:
+        funding = f"В строительство вложили {mln(paid)} при смете {mln(total)}."
+    else:
+        funding = f"В общую смету поступило {mln(paid)} из {mln(total)}."
+    sentences = [lead, funding]
+    if paid < total * MIN_COVERAGE_TO_BUILD:
+        sentences.append("Этой суммы не хватило для завершения стройки.")
+    if outcome["id"] == "without_residents":
+        sentences.append("Жители и НКО не поддержали протокол на голосовании.")
+
+    water = conditions.get(WATER)
+    if water == PARTIAL:
+        sentences.append("Обещание подвоза питьевой воды выполнили лишь частично.")
+    elif month is not None and month > promised:
+        if water == FULL and month > WATER_MAX_MONTHS:
+            sentences.append(f"Подвоз питьевой воды закончился после {WATER_MAX_MONTHS}-го месяца, ещё до запуска очистных.")
+        elif water == FULL:
+            sentences.append("Пока шли работы, мэрия подвозила жителям питьевую воду.")
+        else:
+            sentences.append("На время задержки подвоз питьевой воды не организовали.")
+
+    if outcome["id"] == "compromise" and water != PARTIAL:
+        partial = next((CONDITIONS[condition]["label"] for condition, level in conditions.items() if level == PARTIAL), None)
+        if partial:
+            sentences.append(f"Условие «{partial}» выполнили лишь частично.")
+        elif any(vote is not True for vote in protocol["votes"].values()):
+            sentences.append("Протокол поддержали не все стороны.")
+
+    if conditions.get(SENSORS) == FULL:
+        sentences.append("Открытые датчики публикуют замеры реки, и жители могут сами посмотреть данные.")
+    elif outcome["id"] == "closed_data":
+        sentences.append("У жителей по-прежнему нет полных открытых данных о состоянии реки.")
     return " ".join(sentences)
 
 
