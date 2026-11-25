@@ -68,9 +68,7 @@ EVERY_OUTCOME = {
     "Каждый сам за себя": game(FAIR_SPLIT, {ADMIN: True, HOLDING: True}, REFERENCE),
     "Недострой": game(FAIR_SPLIT, {**ALL_FOR, HOLDING: False}, NO_SENSORS),
     "Решили без жителей": game(FAIR_SPLIT, {**ALL_FOR, RESIDENTS: False, NGO: False}, REFERENCE),
-    "Долгострой": game({ADMIN: 30 * MLN, HOLDING: 100 * MLN, REGION: 140 * MLN}, {**ALL_FOR, HOLDING: False}),
-    "Холдинг заплатил за всех": game({ADMIN: 10 * MLN, HOLDING: 200 * MLN, REGION: 60 * MLN}, ALL_FOR, REFERENCE),
-    "Город заплатил за всех": game({ADMIN: 140 * MLN, HOLDING: 80 * MLN, REGION: 50 * MLN}, ALL_FOR, REFERENCE),
+    "Долгострой": game({ADMIN: 30 * MLN, HOLDING: 180 * MLN, REGION: 90 * MLN}, {**ALL_FOR, HOLDING: False}),
     "Чистая вода, закрытые данные": game(FAIR_SPLIT, ALL_FOR, NO_SENSORS),
     "Компромисс": game(FAIR_SPLIT, {**ALL_FOR, RESIDENTS: False}, REFERENCE),
 }
@@ -89,8 +87,40 @@ class OutcomeTests(unittest.TestCase):
     def test_rejected_protocol_with_some_support_leads_to_each_for_themselves(self):
         result = forecast(game(FAIR_SPLIT, {ADMIN: True, HOLDING: True}, REFERENCE))
         self.assertEqual(result["outcome"]["name"], "Каждый сам за себя")
-        self.assertEqual(result["execution"]["contributions"][HOLDING], "частично")
+        self.assertEqual(result["execution"]["contributions"][HOLDING], "нет")
         self.assertEqual(result["execution"]["contributions"][REGION], "нет")
+        self.assertEqual(result["paid"], 0)
+        self.assertEqual(result["execution"]["conditions"]["water_supply"], "частично")
+
+    def test_rejected_protocol_without_independent_measures_leads_to_stagnation(self):
+        result = forecast(game(FAIR_SPLIT, {HOLDING: True, RESIDENTS: True}, {"protest_moratorium": True}))
+        self.assertEqual(result["outcome"]["name"], "Застой")
+        self.assertEqual(result["paid"], 0)
+        self.assertEqual(result["execution"]["reconstruction"], "нет")
+
+    def test_water_guarantee_covers_construction_only_through_month_48(self):
+        split = {ADMIN: 10 * MLN, HOLDING: 120 * MLN, REGION: 90 * MLN}
+        for promised, expected in [(24, "Компромисс"), (25, "Долгострой")]:
+            with self.subTest(promised=promised):
+                result = forecast(game(split, ALL_FOR, {**REFERENCE, "timeline": promised}))
+                self.assertEqual(result["commissioning_month"], promised + 24)
+                self.assertEqual(result["outcome"]["name"], expected)
+
+    def test_funding_at_exact_threshold_allows_construction(self):
+        for holding, month in [(102_499_999, None), (102_500_000, 60)]:
+            with self.subTest(holding=holding):
+                split = {ADMIN: 10 * MLN, HOLDING: holding, REGION: 90 * MLN}
+                result = forecast(game(split, ALL_FOR, REFERENCE))
+                self.assertEqual(result["commissioning_month"], month)
+                self.assertEqual(result["outcome"]["name"], "Недострой" if month is None else "Долгострой")
+
+    def test_nedostroy_and_unsupported_protocol_have_priority_over_later_checks(self):
+        votes = {**ALL_FOR, RESIDENTS: False, NGO: False}
+        for holding, expected in [(110, "Недострой"), (130, "Решили без жителей")]:
+            with self.subTest(holding=holding):
+                split = {HOLDING: holding * MLN, REGION: 90 * MLN}
+                result = forecast(game(split, votes))
+                self.assertEqual(result["outcome"]["name"], expected)
 
     def test_main_payer_against_without_open_sensors_leads_to_unfinished_plant(self):
         result = forecast(EVERY_OUTCOME["Недострой"])
@@ -100,7 +130,7 @@ class OutcomeTests(unittest.TestCase):
 
     def test_late_plant_without_water_guarantee_leads_to_long_construction(self):
         result = forecast(EVERY_OUTCOME["Долгострой"])
-        # Покрыто 220 из 270 млн: 36 мес. + 12 (реконструкция частично) + 24 (недофинансирование).
+        # Покрыто 210 из 270 млн: 36 мес. + 12 (реконструкция частично) + 24 (недофинансирование).
         self.assertEqual(result["commissioning_month"], 72)
         self.assertEqual(result["outcome"]["name"], "Долгострой")
 
@@ -110,11 +140,10 @@ class OutcomeTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
-    def test_open_sensors_pull_up_reluctant_payer(self):
+    def test_open_sensors_do_not_cover_a_missing_payment(self):
         result = forecast(game(FAIR_SPLIT, {**ALL_FOR, HOLDING: False}, REFERENCE))
-        self.assertEqual(result["execution"]["contributions"][HOLDING], "полностью")
-        self.assertEqual(result["execution"]["reconstruction"], "полностью")
-        self.assertEqual(result["outcome"]["name"], "Открытая река")
+        self.assertEqual(result["paid"], 185_000_000)
+        self.assertEqual(result["outcome"]["name"], "Недострой")
 
     def test_reconstruction_term_comes_from_protocol(self):
         result = forecast(game(FAIR_SPLIT, ALL_FOR, {**REFERENCE, "timeline": 48}))
@@ -128,10 +157,15 @@ class ExecutionTests(unittest.TestCase):
         # Очистных через год ещё нет, а подвоз воды не действует.
         self.assertEqual(result["state"]["year_1"]["subsystems"]["ecology"], "не достигнуто")
 
-    def test_water_guarantee_spending_counts_toward_credit(self):
-        split = {ADMIN: 20 * MLN, HOLDING: 160 * MLN, REGION: 90 * MLN}
-        self.assertEqual(forecast(game(split, ALL_FOR, REFERENCE))["protocol"]["credit"], [ADMIN])
-        self.assertEqual(forecast(game(split, ALL_FOR, {"open_sensors": True}))["protocol"]["credit"], [])
+    def test_financial_load_counts_water_spending_separately_from_project_funding(self):
+        split = {ADMIN: 30 * MLN, HOLDING: 150 * MLN, REGION: 90 * MLN}
+        result = forecast(game(split, ALL_FOR, REFERENCE))
+        roles = {row["role_id"]: row for row in result["financial_load"]}
+        self.assertEqual(roles[ADMIN]["committed_rub"], 50_000_000)
+        self.assertAlmostEqual(roles[ADMIN]["budget_used_percent"], 166.67, places=2)
+        self.assertEqual(roles[ADMIN]["over_budget_rub"], 20_000_000)
+        self.assertIsNone(roles[RESIDENTS]["budget_used_percent"])
+        self.assertEqual(result["paid"], 270_000_000)
 
 
 class CityStateTests(unittest.TestCase):
@@ -151,10 +185,10 @@ class CityStateTests(unittest.TestCase):
         self.assertEqual(state["year_10"]["subsystems"]["law"], "не достигнуто")
         self.assertEqual(state["year_10"]["subsystems"]["politics"], "не достигнуто")
 
-    def test_holding_on_credit_keeps_paying_but_fails_economy(self):
-        result = forecast(EVERY_OUTCOME["Холдинг заплатил за всех"])  # 200 млн при бюджете 180
-        self.assertEqual(result["execution"]["contributions"][HOLDING], "полностью")
-        self.assertEqual(result["state"]["year_10"]["subsystems"]["economy"], "не достигнуто")
+    def test_over_budget_commitment_does_not_automatically_fail_economy(self):
+        result = forecast(game({ADMIN: 30 * MLN, HOLDING: 150 * MLN, REGION: 90 * MLN}, ALL_FOR, REFERENCE))
+        self.assertEqual(result["state"]["year_10"]["subsystems"]["economy"], "достигнуто")
+        self.assertNotIn("кредит", result["report"].lower())
 
 
 def explained(result_data):
@@ -191,17 +225,15 @@ class ConditionTests(unittest.TestCase):
         self.assertIn("Вина за аварию признана за городом: «Политика» не выше «частично» — подорвано доверие к "
                       "местной власти.", explained(result_data))
 
-    def test_tax_relief_softens_holding_credit_but_costs_region(self):
-        split = {ADMIN: 10 * MLN, HOLDING: 210 * MLN, REGION: 50 * MLN}  # холдинг в кредите, область — 18,5%
+    def test_tax_relief_counts_toward_region_costs(self):
+        split = {ADMIN: 10 * MLN, HOLDING: 210 * MLN, REGION: 50 * MLN}
         without_relief = forecast(game(split, ALL_FOR, REFERENCE))
         result_data = game(split, ALL_FOR, {**REFERENCE, "tax_relief": True})
         result = forecast(result_data)
-        self.assertEqual(without_relief["state"]["year_10"]["subsystems"]["economy"], "не достигнуто")
+        self.assertEqual(without_relief["state"]["year_10"]["subsystems"]["economy"], "частично")
         self.assertEqual(result["state"]["year_10"]["subsystems"]["economy"], "частично")
         self.assertTrue(without_relief["fates"][REGION][0]["met"])
         self.assertFalse(result["fates"][REGION][0]["met"])  # льготы — тоже затраты области
-        self.assertIn("Налоговые льготы холдингу: его кредит не опускает «Экономику» ниже «частично».",
-                      explained(result_data))
 
     def test_protest_moratorium_holds_only_while_works_go_on(self):
         result_data = game(FAIR_SPLIT, {**ALL_FOR, HOLDING: False}, {"protest_moratorium": True})
@@ -271,7 +303,7 @@ class ReportTests(unittest.TestCase):
         result = forecast(game(FAIR_SPLIT, {ADMIN: True, HOLDING: True}, REFERENCE))
         self.assertIn("Протокол не принят", result["herald_text"])
         self.assertRegex(result["herald_text"], r"Заявленные взносы[^\n]*(?<![\d,])270 млн ₽ из 270 млн ₽")
-        self.assertRegex(result["herald_text"], r"Фактически внесено[^\n]*(?<![\d,])90 млн ₽")
+        self.assertIn("Фактически внесено: 0 млн ₽", result["herald_text"])
         self.assertIn("очистные не введены за 10 лет", result["herald_text"])
 
     def test_report_covers_criterion_six_without_unproven_harm(self):
@@ -302,8 +334,7 @@ class ReportTests(unittest.TestCase):
         prompt = forecast(EVERY_OUTCOME["Долгострой"])["herald_prompt"]
         self.assertIn("- Через год: Экология и наука — не достигнуто;", prompt)
         self.assertIn("- При вводе очистных (72-й мес.): Экология и наука — частично;", prompt)
-        self.assertIn("- События: очистные введены на 72-м месяце, на 36 мес. позже обещанного; Региональная власть "
-                      "платит в кредит.", prompt)
+        self.assertIn("- События: очистные введены на 72-м месяце, на 36 мес. позже обещанного.", prompt)
 
     def test_herald_prompt_carries_protocol_conditions(self):
         prompt = forecast(EVERY_OUTCOME["Открытая река"])["herald_prompt"]
@@ -413,7 +444,7 @@ class ExplanationTests(unittest.TestCase):
         self.assertEqual(without[RESIDENTS], "Открытая река")
 
     def test_every_fired_rule_names_its_source(self):
-        rules = forecast(game(FAIR_SPLIT, {**ALL_FOR, REGION: False}, NO_SENSORS))["explanation"]["rules"]
+        rules = forecast(game(FAIR_SPLIT, ALL_FOR, NO_SENSORS))["explanation"]["rules"]
         self.assertTrue(all(rule["source"] for rule in rules))
         self.assertIn({"step": "Исполнение", "source": "Учебник, 3.1, табл. 4",
                        "text": "Открытые датчики не включены в протокол: независимого контроля нет, истинное "
@@ -442,11 +473,11 @@ class ExplanationTests(unittest.TestCase):
 
     def test_vote_rule_reads_naturally_for_rejected_protocol(self):
         texts = explained(EVERY_OUTCOME["Каждый сам за себя"])
-        self.assertIn("Промышленный холдинг: голос «за», протокол не принят → заявленное выполняется частично.", texts)
-        self.assertIn("Региональная власть: голос «против», протокол не принят → обязательства не выполняются.", texts)
+        self.assertIn("Протокол отклонён. Взносы в общую смету и реконструкция не исполняются.", texts)
+        self.assertIn("Администрация города N: «Гарантия питьевой воды» выполняется частично своими силами.", texts)
 
     def test_delay_is_broken_down_in_explanation(self):
-        self.assertIn("Внесено 220 из 270 млн ₽ (81%) → очистные введены на 72-м месяце: обещано 36, "
+        self.assertIn("По модели внесено 210 из 270 млн ₽ → очистные введены на 72-м месяце: обещано 36, "
                       "+12 — реконструкция выполнена частично, +24 — смета покрыта не полностью.",
                       explained(EVERY_OUTCOME["Долгострой"]))
 
@@ -465,7 +496,8 @@ class CommandLineTests(unittest.TestCase):
     def test_json_output_carries_whole_forecast(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "game.json"
-            path.write_text(json.dumps(EVERY_OUTCOME["Холдинг заплатил за всех"]), encoding="utf-8")
+            path.write_text(json.dumps(EVERY_OUTCOME["Открытая река"]), encoding="utf-8")
             output = json.loads(self.run_cli(str(path), "--json"))
-        self.assertEqual(output["outcome"]["name"], "Холдинг заплатил за всех")
-        self.assertEqual(output["protocol"]["credit"], [HOLDING])
+        self.assertEqual(output["outcome"]["name"], "Открытая река")
+        self.assertEqual(output["model_version"], 2)
+        self.assertEqual(len(output["financial_load"]), 5)

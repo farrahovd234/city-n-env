@@ -1117,6 +1117,70 @@
         ],
         "title": "FieldError"
       },
+      "FinancialLoad": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "budget_rub": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Rub"
+          },
+          "pledged_rub": {
+            "type": "number",
+            "title": "Pledged Rub"
+          },
+          "spent_on_conditions_rub": {
+            "type": "number",
+            "title": "Spent On Conditions Rub"
+          },
+          "committed_rub": {
+            "type": "number",
+            "title": "Committed Rub"
+          },
+          "budget_used_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Used Percent"
+          },
+          "over_budget_rub": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Over Budget Rub"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role_id",
+          "budget_rub",
+          "pledged_rub",
+          "spent_on_conditions_rub",
+          "committed_rub",
+          "budget_used_percent",
+          "over_budget_rub"
+        ],
+        "title": "FinancialLoad"
+      },
       "Funding": {
         "properties": {
           "role_id": {
@@ -1586,6 +1650,35 @@
               }
             ],
             "title": "Image Url"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "financial_load": {
+            "items": {
+              "$ref": "#/components/schemas/FinancialLoad"
+            },
+            "type": "array",
+            "title": "Financial Load"
+          },
+          "report_markdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Markdown"
           }
         },
         "type": "object",

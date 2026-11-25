@@ -24,7 +24,7 @@ INDICATORS = (
 
 def millions(amount: float) -> str:
     """Сумма в миллионах без единиц: 225 000 000 → «225»."""
-    return f"{amount / MLN:g}".replace(".", ",")
+    return f"{amount / MLN:.7f}".rstrip("0").rstrip(".").replace(".", ",")
 
 
 def mln(amount: float) -> str:
@@ -46,7 +46,6 @@ def events(result: dict[str, Any]) -> str:
         happened = [f"очистные введены на {month}-м месяце, на {month - promised} мес. позже обещанного"]
     else:
         happened = [f"очистные введены в обещанный срок, на {month}-м месяце"]
-    happened += [f"{ROLE_LABELS[role]} платит в кредит" for role in result["protocol"]["credit"]]
     return "; ".join(happened)
 
 
@@ -90,8 +89,6 @@ def cost_split(result: dict[str, Any]) -> str:
              for role, amount in protocol["contributions"].items()]
     text = "; ".join(parts) if parts else "взносов нет"
     text += f". Фактически внесено {mln(result['paid'])} из {mln(total)}"
-    if protocol["credit"]:
-        text += ". В кредите: " + ", ".join(ROLE_LABELS[role] for role in protocol["credit"])
     return text
 
 
@@ -114,6 +111,17 @@ def render_report(result: dict[str, Any]) -> str:
             continue
         lines.append(f"| {info['label']} | {condition_value(condition, protocol['conditions'][condition])} | "
                      f"{ROLE_LABELS[info['owner']]} | {condition_execution(result, condition)} |")
+
+    lines += ["", "## Финансовая нагрузка по заявленным обязательствам", "",
+              "| Роль | Взнос | Отдельные расходы | Всего заявлено | Бюджет | Доля бюджета | Сверх бюджета |",
+              "| --- | --- | --- | --- | --- | --- | --- |"]
+    for row in result["financial_load"]:
+        budget = mln(row["budget_rub"]) if row["budget_rub"] is not None else "—"
+        percent = f"{row['budget_used_percent']:g}%" if row["budget_used_percent"] is not None else "—"
+        excess = mln(row["over_budget_rub"]) if row["over_budget_rub"] is not None else "—"
+        lines.append(f"| {ROLE_LABELS[row['role_id']]} | {mln(row['pledged_rub'])} | "
+                     f"{mln(row['spent_on_conditions_rub'])} | {mln(row['committed_rub'])} | "
+                     f"{budget} | {percent} | {excess} |")
 
     state = result["state"]
     headers = [MOMENT_LABELS[moment] + (f" ({state[moment]['month']}-й мес.)" if moment == "commissioning"

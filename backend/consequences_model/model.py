@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from typing import Any
 
-from .catalog import (ADMIN, CITY_PAID_ALL_SHARE, CONDITIONS, CONDITION_DEFAULTS, DELAY_PARTIAL_RECONSTRUCTION, DELAY_UNDERFUNDED, FULL,
-                      GUILT, HOLDING, HOLDING_PAID_ALL_SHARE, HORIZON_MONTHS, MIN_COVERAGE_TO_BUILD, NGO, NONE,
-                      OUTCOMES, PAID_PART, PARTIAL, RAISE, RECONSTRUCTION_OWNER, RESIDENTS, ROLE_LABELS, SENSORS,
-                      WATER)
+from .catalog import (CONDITIONS, DELAY_PARTIAL_RECONSTRUCTION, DELAY_UNDERFUNDED, FULL, GUILT, HORIZON_MONTHS,
+                      MIN_COVERAGE_TO_BUILD, MODEL_VERSION, NGO, NONE, OUTCOMES, PAID_PART, PARTIAL,
+                      RECONSTRUCTION_OWNER, RESIDENTS, ROLE_LABELS, SENSORS, STANDALONE_CONDITIONS, WATER,
+                      WATER_MAX_MONTHS)
 from .explain import fired_rules
 from .protocol import Protocol, read_protocol
 from .report import render_herald_prompt, render_herald_text, render_report
@@ -23,22 +23,20 @@ def execute(protocol: Protocol, excluded: str | None = None) -> dict[str, Any]:
     def by_vote(owner: str) -> str:
         if owner == excluded:
             return NONE
-        if protocol.accepted:
-            return FULL if protocol.supports(owner) else PARTIAL
-        return PARTIAL if protocol.supports(owner) else NONE
+        return FULL if protocol.supports(owner) else PARTIAL
 
-    contributions = {role: by_vote(role) for role in protocol.contributions}
-    conditions = {condition: by_vote(CONDITIONS[condition]["owner"]) for condition in protocol.included}
-    reconstruction = by_vote(RECONSTRUCTION_OWNER)
-    if protocol.accepted and conditions.get(SENSORS) == FULL:
-        # Учебник, табл. 5, «Право»: срыв виден, и его исправляют.
-        def raised(owner: str, value: str) -> str:
-            return value if owner == excluded else RAISE[value]
-
-        contributions = {role: raised(role, value) for role, value in contributions.items()}
-        conditions = {condition: value if condition == SENSORS else raised(CONDITIONS[condition]["owner"], value)
-                      for condition, value in conditions.items()}
-        reconstruction = raised(RECONSTRUCTION_OWNER, reconstruction)
+    if protocol.accepted:
+        contributions = {role: by_vote(role) for role in protocol.contributions}
+        conditions = {condition: by_vote(CONDITIONS[condition]["owner"]) for condition in protocol.included}
+        reconstruction = by_vote(RECONSTRUCTION_OWNER)
+    else:
+        contributions = dict.fromkeys(protocol.contributions, NONE)
+        conditions = dict.fromkeys(protocol.included, NONE)
+        for condition in STANDALONE_CONDITIONS:
+            owner = CONDITIONS[condition]["owner"]
+            if condition in conditions and owner != excluded and protocol.supports(owner):
+                conditions[condition] = PARTIAL
+        reconstruction = NONE
     return {"contributions": contributions, "conditions": conditions, "reconstruction": reconstruction}
 
 
@@ -71,16 +69,14 @@ def shares(protocol: Protocol) -> dict[str, float]:
 ACCEPTED_RULES = (
     ("nedostroy", lambda f: f["month"] is None),
     ("without_residents", lambda f: not f["support"][RESIDENTS] and not f["support"][NGO]),
-    ("dolgostroy", lambda f: f["month"] > f["promised_months"] and WATER not in f["acting"]),
-    ("holding_paid", lambda f: f["shares"][HOLDING] >= HOLDING_PAID_ALL_SHARE),
-    ("city_paid", lambda f: f["shares"][ADMIN] >= CITY_PAID_ALL_SHARE),
+    ("dolgostroy", lambda f: f["late_water_gap"]),
     ("open_river", lambda f: f["month"] == f["promised_months"] and f["monitoring_ok"]
         and all(value == FULL for value in f["levels"]) and f["support"][RESIDENTS] and f["support"][NGO]),
     ("closed_data", lambda f: not f["monitoring_ok"]),
     ("compromise", lambda f: True),
 )
 REJECTED_RULES = (
-    ("each_for_self", lambda f: PARTIAL in f["levels"]),
+    ("each_for_self", lambda f: bool(f["standalone_measures"])),
     ("stagnation", lambda f: True),
 )
 
@@ -91,12 +87,13 @@ def choose_outcome(protocol: Protocol, facts: dict[str, Any]) -> dict[str, str]:
     return {"id": outcome_id, **OUTCOMES[outcome_id]}
 
 
-def simulate(protocol: Protocol, excluded: str | None = None, *, no_agreement: bool = False) -> dict[str, Any]:
-    execution = ({"contributions": {}, "conditions": {}, "reconstruction": NONE}
-                 if no_agreement else execute(protocol, excluded))
+def simulate(protocol: Protocol, excluded: str | None = None) -> dict[str, Any]:
+    execution = execute(protocol, excluded)
     month, delays = commissioning(protocol, execution)
     # Условие влияет на город, только если выполнено полностью.
     acting = {condition for condition, value in execution["conditions"].items() if value == FULL}
+    standalone_measures = [condition for condition in STANDALONE_CONDITIONS
+                           if not protocol.accepted and execution["conditions"].get(condition) == PARTIAL]
     facts = {
         "month": month,
         "delays": delays,
@@ -104,6 +101,7 @@ def simulate(protocol: Protocol, excluded: str | None = None, *, no_agreement: b
         "paid": paid_in(protocol, execution),
         "contributions": execution["contributions"],
         "conditions": execution["conditions"],
+        "reconstruction": execution["reconstruction"],
         "levels": [*execution["contributions"].values(), *execution["conditions"].values(),
                    execution["reconstruction"]],
         "acting": acting,
@@ -111,13 +109,16 @@ def simulate(protocol: Protocol, excluded: str | None = None, *, no_agreement: b
         "guilt": protocol.conditions[GUILT] if protocol.accepted else None,
         "support": {role: protocol.supports(role) for role in ROLE_LABELS},
         "shares": shares(protocol),
-        "credit": protocol.credit,
+        "late_water_gap": month is not None and month > protocol.promised_months
+        and (WATER not in acting or month > WATER_MAX_MONTHS),
+        "standalone_measures": standalone_measures,
+        "over_budget": {role for role in protocol.budgets if protocol.overspend(role) > 0},
         "monitoring_ok": SENSORS in acting,
     }
     return {"execution": execution, "facts": facts, "outcome": choose_outcome(protocol, facts)}
 
 
-def forecast(game_result: dict[str, Any], *, no_agreement: bool = False) -> dict[str, Any]:
+def forecast(game_result: dict[str, Any]) -> dict[str, Any]:
     """Рассчитывает прогноз по итогу партии."""
     game_status = game_result.get("status", "completed")
     if game_status != "completed":
@@ -131,17 +132,15 @@ def forecast(game_result: dict[str, Any], *, no_agreement: bool = False) -> dict
             "herald_prompt": "",
         }
     protocol = read_protocol(game_result)
-    if no_agreement:
-        protocol = replace(protocol, accepted=False, contributions={}, spent_on_conditions={},
-                           conditions=dict(CONDITION_DEFAULTS))
-    run = simulate(protocol, no_agreement=no_agreement)
+    run = simulate(protocol)
     facts = run["facts"]
     state = city_state(facts)
-    without_role = {role: simulate(protocol, excluded=role, no_agreement=no_agreement)["outcome"]["name"]
-                    for role in ROLE_LABELS}
+    without_role = {role: simulate(protocol, excluded=role)["outcome"]["name"] for role in ROLE_LABELS}
     result = {
+        "model_version": MODEL_VERSION,
         "outcome": run["outcome"],
-        "protocol": {**asdict(protocol), "credit": protocol.credit, "included": protocol.included},
+        "protocol": {**asdict(protocol), "included": protocol.included},
+        "financial_load": protocol.financial_load(),
         "promised_months": protocol.promised_months,
         "paid": facts["paid"],
         "execution": run["execution"],

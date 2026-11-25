@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .catalog import (CONDITIONS, CORRECTIONS, FULL, MIN_COVERAGE_TO_BUILD, PARTIAL, RECONSTRUCTION_OWNER,
+from .catalog import (CONDITIONS, CORRECTIONS, FULL, MIN_COVERAGE_TO_BUILD, NONE, PARTIAL, RECONSTRUCTION_OWNER,
                       ROLE_LABELS, SENSORS, SOURCE_FORMALIZATION, SOURCE_OUTCOMES, SOURCE_TABLE_4,
-                      SOURCE_TABLE_5_ECONOMY, SOURCE_TABLE_5_LAW, SUBSYSTEM_CRITERIA, SUBSYSTEM_LABELS, VOTE_LABELS)
+                      SOURCE_TABLE_5_LAW, SUBSYSTEM_CRITERIA, SUBSYSTEM_LABELS, VOTE_LABELS, WATER, WATER_MAX_MONTHS)
 from .protocol import Protocol
 from .report import millions
 
@@ -17,18 +17,24 @@ def rule(step: str, text: str, source: str) -> dict[str, str]:
 
 def execution_rules(protocol: Protocol, facts: dict[str, Any]) -> list[dict[str, str]]:
     rules = []
+    if not protocol.accepted:
+        rules.append(rule("Исполнение", "Протокол отклонён. Взносы в общую смету и реконструкция не исполняются.",
+                          SOURCE_FORMALIZATION))
+        for condition in facts["standalone_measures"]:
+            owner = ROLE_LABELS[CONDITIONS[condition]["owner"]]
+            label = CONDITIONS[condition]["label"]
+            rules.append(rule("Исполнение", f"{owner}: «{label}» выполняется частично своими силами.",
+                              SOURCE_FORMALIZATION))
+        return rules
     owners = {RECONSTRUCTION_OWNER, *protocol.contributions,
               *(CONDITIONS[condition]["owner"] for condition in protocol.included)}
     for role in ROLE_LABELS:
         if role not in owners:
             continue
         voted = f"«{VOTE_LABELS[protocol.votes[role]]}»"
-        if protocol.accepted:
-            text = f"голос {voted} → обязательства " + ("выполняются полностью" if protocol.supports(role)
-                                                       else "выполняются частично")
-        else:
-            text = f"голос {voted}, протокол не принят → " + ("заявленное выполняется частично" if protocol.supports(role)
-                                                             else "обязательства не выполняются")
+        text = f"голос {voted} → обязательства " + ("выполняются полностью, учитывается 100% взноса"
+                                                   if protocol.supports(role)
+                                                   else "выполняются частично, учитывается 50% взноса")
         rules.append(rule("Исполнение", f"{ROLE_LABELS[role]}: {text}.", SOURCE_FORMALIZATION))
 
     for condition, value in facts["conditions"].items():
@@ -40,27 +46,34 @@ def execution_rules(protocol: Protocol, facts: dict[str, Any]) -> list[dict[str,
     if SENSORS not in protocol.included:
         rules.append(rule("Исполнение", "Открытые датчики не включены в протокол: независимого контроля нет, "
                                         "истинное состояние реки неизвестно.", SOURCE_TABLE_4))
-    elif protocol.accepted and facts["monitoring_ok"]:
-        rules.append(rule("Исполнение", "Открытые датчики НКО выполнены полностью → срывы видны и исправляются: "
-                                        "остальные обязательства поднимаются на ступень.", SOURCE_TABLE_5_LAW))
+    elif facts["monitoring_ok"]:
+        rules.append(rule("Исполнение", "Открытые датчики НКО публикуют данные, доступные всем сторонам.",
+                          SOURCE_TABLE_5_LAW))
     return rules
 
 
 def money_rules(protocol: Protocol, facts: dict[str, Any]) -> list[dict[str, str]]:
     paid, total = facts["paid"], protocol.total_cost
-    covered = f"Внесено {millions(paid)} из {millions(total)} млн ₽ ({paid / total:.0%})"
-    if facts["month"] is not None:
+    covered = f"По модели внесено {millions(paid)} из {millions(total)} млн ₽"
+    if not protocol.accepted:
+        text = f"{covered}. Общая реконструкция не началась, поскольку протокол отклонён."
+    elif facts["month"] is not None:
         delays = [f"обещано {facts['promised_months']}"] + [f"+{months} — {reason}" for months, reason in facts["delays"]]
         text = f"{covered} → очистные введены на {facts['month']}-м месяце: " + ", ".join(delays) + "."
-    elif paid / total < MIN_COVERAGE_TO_BUILD:
+    elif paid < total * MIN_COVERAGE_TO_BUILD:
         text = f"{covered}, меньше {MIN_COVERAGE_TO_BUILD:.0%} → очистные не введены за 10 лет."
+    elif facts["reconstruction"] == NONE:
+        text = f"{covered}. Реконструкция не выполняется, поэтому очистные не введены."
     else:
-        text = f"{covered}, но реконструкция не выполняется или опаздывает дольше 10 лет → очистные не введены."
+        month = facts["promised_months"] + sum(delay for delay, _ in facts["delays"])
+        text = f"{covered}. Расчётный ввод на {month}-м месяце выходит за десятилетний горизонт."
     rules = [rule("Деньги и сроки", text, SOURCE_FORMALIZATION)]
-    for role in facts["credit"]:
-        rules.append(rule("Деньги и сроки", f"{ROLE_LABELS[role]} вносит сверх бюджета: кредит "
-                                            f"{millions(protocol.overspend(role))} "
-                                            "млн ₽ → долговая нагрузка.", SOURCE_TABLE_5_ECONOMY))
+    if facts["late_water_gap"]:
+        if WATER in facts["acting"]:
+            text = f"Подвоз действовал до {WATER_MAX_MONTHS}-го месяца, очистные ввели на {facts['month']}-м месяце."
+        else:
+            text = "На время задержки ввода очистных подвоз воды не был обеспечен полностью."
+        rules.append(rule("Временные меры", text, SOURCE_FORMALIZATION))
     return rules
 
 

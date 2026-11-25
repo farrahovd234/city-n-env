@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .catalog import (ACHIEVED, ADMIN, CITY_PAID_ALL_SHARE, FAILED, FULL, FUNDING_FROM_OTHERS_SHARE,
+from .catalog import (ACHIEVED, ADMIN, CITY_HIGH_SHARE, FAILED, FULL, FUNDING_FROM_OTHERS_SHARE,
                       GUILT_CITY_CORRECTION, GUILT_HOLDING_CORRECTION, GUILT_ON_CITY, GUILT_ON_HOLDING, HOLDING,
-                      HOLDING_PAID_ALL_SHARE, HORIZON_MONTHS, LATE_WITHOUT_WATER_MONTHS, MEDIA_HOLDING_MIN_SHARE,
+                      HOLDING_HIGH_SHARE, HORIZON_MONTHS, LATE_WITHOUT_WATER_MONTHS, MEDIA_HOLDING_MIN_SHARE,
                       MORATORIUM, NGO, NONE, PAID_PART, PARTLY, PLANT_MODE, REGION, REGION_LOW_COST_SHARE, RESIDENTS, SENSORS,
                       TARIFFS, TAX_RELIEF, WATER, WATER_MAX_MONTHS, YEAR_1_MONTH)
 
@@ -32,19 +32,19 @@ def water_at(facts: dict[str, Any], month: int) -> bool:
 def subsystems(facts: dict[str, Any], month: int, horizon: bool) -> dict[str, str]:
     built = built_by(facts, month)
     residents_have_water = built or water_at(facts, month)
-    support, shares, credit = facts["support"], facts["shares"], facts["credit"]
+    support, shares = facts["support"], facts["shares"]
+    local_water = WATER in facts["standalone_measures"] and month <= WATER_MAX_MONTHS
     holding_paid = facts["contributions"].get(HOLDING) == FULL and shares[HOLDING] >= MEDIA_HOLDING_MIN_SHARE
-    late_without_water = WATER not in facts["acting"] and (
-        facts["month"] is None or facts["month"] > LATE_WITHOUT_WATER_MONTHS)
+    late_without_water = facts["late_water_gap"] or (WATER not in facts["acting"] and (
+        facts["month"] is None or facts["month"] > LATE_WITHOUT_WATER_MONTHS))
     return {
         # Учебник, табл. 4, 5: вода в норме и истинное состояние реки известно.
-        "ecology": level(not built and not water_at(facts, month), built and facts["monitoring_ok"]),
+        "ecology": level(not built and not water_at(facts, month) and not local_water,
+                         built and facts["monitoring_ok"]),
         # Табл. 5, 7: «Открытая река»; цель холдинга — негатив 90 → 60%.
         "media": level(not holding_paid and not facts["monitoring_ok"], holding_paid and facts["monitoring_ok"]),
         # Табл. 5: занятость, зависимость моногорода от одного работодателя.
-        "economy": level(HOLDING in credit,
-                         shares[HOLDING] < HOLDING_PAID_ALL_SHARE and shares[ADMIN] < CITY_PAID_ALL_SHARE
-                         and not credit),
+        "economy": ACHIEVED if shares[HOLDING] < HOLDING_HIGH_SHARE and shares[ADMIN] < CITY_HIGH_SHARE else PARTLY,
         # Табл. 5: выявленные и устранённые нарушения, «договоры с публичными KPI».
         "law": level(facts["conditions"].get(SENSORS, NONE) == NONE,
                      facts["monitoring_ok"] and all(value == FULL for value in facts["conditions"].values())),
@@ -65,14 +65,12 @@ def at_most_partly(level: str) -> str:
 def corrections(facts: dict[str, Any], month: int, moment: str) -> list[tuple[str, str, Callable[[str], str]]]:
     """Поправки от условий протокола в момент прогноза: (поправка, подсистема, ограничение до «частично»)."""
     found: list[tuple[str, str, Callable[[str], str]]] = []
-    if PLANT_MODE in facts["acting"] and not built_by(facts, month):
+    if (PLANT_MODE in facts["acting"] or PLANT_MODE in facts["standalone_measures"]) and not built_by(facts, month):
         found += [(PLANT_MODE, "ecology", at_least_partly), (PLANT_MODE, "economy", at_most_partly)]
     if facts["guilt"] == GUILT_ON_HOLDING and moment == "year_1":
         found.append((GUILT_HOLDING_CORRECTION, "media", at_most_partly))
     if facts["guilt"] == GUILT_ON_CITY:
         found.append((GUILT_CITY_CORRECTION, "politics", at_most_partly))
-    if TAX_RELIEF in facts["acting"] and HOLDING in facts["credit"]:
-        found.append((TAX_RELIEF, "economy", at_least_partly))
     # Мораторий — мера на время работ: до ввода очистных, но не в горизонте прогноза.
     if MORATORIUM in facts["acting"] and moment != "year_10" and not built_by(facts, month):
         found.append((MORATORIUM, "politics", at_least_partly))
@@ -100,7 +98,7 @@ def city_state(facts: dict[str, Any]) -> dict[str, Any]:
 def fates(facts: dict[str, Any], state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Судьба участников через 10 лет: проверки по целям ролей из методички."""
     year_1, year_10 = state["year_1"]["subsystems"], state["year_10"]["subsystems"]
-    shares, credit = facts["shares"], facts["credit"]
+    shares = facts["shares"]
     received_funding_share = sum(shares[role] * PAID_PART[facts["contributions"].get(role, NONE)]
                                  for role in (REGION, HOLDING))
 
@@ -113,7 +111,8 @@ def fates(facts: dict[str, Any], state: dict[str, Any]) -> dict[str, list[dict[s
                 check("Массовых протестов нет", year_10["politics"] != FAILED),
                 check("Вину за аварию не возложили на город", facts["guilt"] != GUILT_ON_CITY)],
         HOLDING: [check("Негатив к холдингу снижен до 60% за год", year_1["media"] == ACHIEVED),
-                  check("Вложения не чрезмерные", shares[HOLDING] < HOLDING_PAID_ALL_SHARE and HOLDING not in credit)],
+                  check("Вложения не чрезмерные",
+                        shares[HOLDING] < HOLDING_HIGH_SHARE and HOLDING not in facts["over_budget"])],
         REGION: [check("Затраты области низкие: малая доля и без налоговых льгот холдингу",
                        shares[REGION] <= REGION_LOW_COST_SHARE and TAX_RELIEF not in facts["acting"]),
                  check("Доверие восстановлено: условия для переизбрания губернатора есть",

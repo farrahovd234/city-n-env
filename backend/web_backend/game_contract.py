@@ -163,6 +163,16 @@ class Indicator(BaseModel):
     final_value: str | int | float
 
 
+class FinancialLoad(BaseModel):
+    role_id: str
+    budget_rub: float | None
+    pledged_rub: float
+    spent_on_conditions_rub: float
+    committed_rub: float
+    budget_used_percent: float | None
+    over_budget_rub: float | None
+
+
 class Projection(BaseModel):
     protocol_version: int
     basis: Literal["proposed_protocol", "accepted_protocol", "no_agreement"]
@@ -173,6 +183,9 @@ class Projection(BaseModel):
     commissioning_month: int | None
     herald_text: str
     image_url: str | None
+    model_version: int | None = None
+    financial_load: list[FinancialLoad] = Field(default_factory=list)
+    report_markdown: str | None = None
 
 
 class RoleVote(BaseModel):
@@ -310,7 +323,7 @@ def votes(raw: dict) -> dict:
 
 
 def projection(raw: dict, version: int, *, basis: str, images: bool) -> dict:
-    prediction = forecast(raw, no_agreement=basis == "no_agreement")
+    prediction = forecast(raw)
     year_one = prediction["state"]["year_1"]["subsystems"]
     year_ten = prediction["state"]["year_10"]["subsystems"]
     outcome = prediction["outcome"]
@@ -320,5 +333,7 @@ def projection(raw: dict, version: int, *, basis: str, images: bool) -> dict:
                            for key, label in SUBSYSTEM_LABELS.items()],
             "outcome_title": outcome["name"], "executed_rub": prediction["paid"],
             "commissioning_month": prediction["commissioning_month"], "herald_text": prediction["herald_text"],
+            "model_version": prediction["model_version"], "financial_load": prediction["financial_load"],
+            "report_markdown": prediction["report"],
             "image_url": (f"/api/v1/illustrations/{outcome['id']}.png"
                           if images and illustration(outcome["id"]) else None)}

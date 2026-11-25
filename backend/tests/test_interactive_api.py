@@ -182,7 +182,7 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
                 pending = state["pending_input"]
                 self.assertEqual(pending["type"], "vote")
                 response = await self.post(f"{self.path}/inputs/{pending['input_id']}", {
-                    "type": "vote", "vote": "against" if not accepted and index == 0 else "for"})
+                    "type": "vote", "vote": "against" if not accepted and index == 1 else "for"})
                 self.assertEqual(response.status_code, 200, response.text)
                 previous = pending["input_id"]
 
@@ -200,6 +200,9 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final["protocol_status"], "accepted" if accepted else "rejected")
         self.assertEqual(final["vote_summary"]["for"], 5 if accepted else 4)
         self.assertEqual(final["result"]["basis"], "accepted_protocol" if accepted else "no_agreement")
+        self.assertEqual(final["result"]["outcome_title"], "Недострой" if accepted else "Каждый сам за себя")
+        self.assertEqual(final["result"]["model_version"], 2)
+        self.assertEqual(final["result"]["financial_load"][0]["committed_rub"], 50_000_000)
         self.assertEqual(final["result"]["executed_rub"], 30_000_000 if accepted else 0)
         self.assertEqual(len(final["result"]["indicators"]), 5)
 
@@ -219,6 +222,13 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["type"], "game.completed")
         stored = SessionStore(self.runs).get(final["game_id"])
         self.assertEqual(stored["snapshot"]["result"], final["result"])
+        if not accepted:
+            stored["snapshot"]["result"].pop("model_version")
+            stored["snapshot"]["result"]["outcome_title"] = "Застой"
+            SessionStore(self.runs).save(stored)
+            restored = await self.snapshot()
+            self.assertEqual(restored["result"], final["result"])
+            self.assertEqual(restored["vote_summary"], final["vote_summary"])
         stored["snapshot"]["expires_at"] = now().isoformat()
         SessionStore(self.runs).save(stored)
         self.assertEqual((await self.api.get(f"/api/v1/games{self.path}")).status_code, 404)
