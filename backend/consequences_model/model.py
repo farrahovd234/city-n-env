@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
-from .catalog import (ADMIN, CITY_PAID_ALL_SHARE, CONDITIONS, DELAY_PARTIAL_RECONSTRUCTION, DELAY_UNDERFUNDED, FULL,
+from .catalog import (ADMIN, CITY_PAID_ALL_SHARE, CONDITIONS, CONDITION_DEFAULTS, DELAY_PARTIAL_RECONSTRUCTION, DELAY_UNDERFUNDED, FULL,
                       GUILT, HOLDING, HOLDING_PAID_ALL_SHARE, HORIZON_MONTHS, MIN_COVERAGE_TO_BUILD, NGO, NONE,
                       OUTCOMES, PAID_PART, PARTIAL, RAISE, RECONSTRUCTION_OWNER, RESIDENTS, ROLE_LABELS, SENSORS,
                       WATER)
@@ -91,8 +91,9 @@ def choose_outcome(protocol: Protocol, facts: dict[str, Any]) -> dict[str, str]:
     return {"id": outcome_id, **OUTCOMES[outcome_id]}
 
 
-def simulate(protocol: Protocol, excluded: str | None = None) -> dict[str, Any]:
-    execution = execute(protocol, excluded)
+def simulate(protocol: Protocol, excluded: str | None = None, *, no_agreement: bool = False) -> dict[str, Any]:
+    execution = ({"contributions": {}, "conditions": {}, "reconstruction": NONE}
+                 if no_agreement else execute(protocol, excluded))
     month, delays = commissioning(protocol, execution)
     # Условие влияет на город, только если выполнено полностью.
     acting = {condition for condition, value in execution["conditions"].items() if value == FULL}
@@ -116,7 +117,7 @@ def simulate(protocol: Protocol, excluded: str | None = None) -> dict[str, Any]:
     return {"execution": execution, "facts": facts, "outcome": choose_outcome(protocol, facts)}
 
 
-def forecast(game_result: dict[str, Any]) -> dict[str, Any]:
+def forecast(game_result: dict[str, Any], *, no_agreement: bool = False) -> dict[str, Any]:
     """Рассчитывает прогноз по итогу партии."""
     game_status = game_result.get("status", "completed")
     if game_status != "completed":
@@ -130,10 +131,14 @@ def forecast(game_result: dict[str, Any]) -> dict[str, Any]:
             "herald_prompt": "",
         }
     protocol = read_protocol(game_result)
-    run = simulate(protocol)
+    if no_agreement:
+        protocol = replace(protocol, accepted=False, contributions={}, spent_on_conditions={},
+                           conditions=dict(CONDITION_DEFAULTS))
+    run = simulate(protocol, no_agreement=no_agreement)
     facts = run["facts"]
     state = city_state(facts)
-    without_role = {role: simulate(protocol, excluded=role)["outcome"]["name"] for role in ROLE_LABELS}
+    without_role = {role: simulate(protocol, excluded=role, no_agreement=no_agreement)["outcome"]["name"]
+                    for role in ROLE_LABELS}
     result = {
         "outcome": run["outcome"],
         "protocol": {**asdict(protocol), "credit": protocol.credit, "included": protocol.included},

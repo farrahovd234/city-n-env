@@ -210,6 +210,18 @@ class NegotiationEngine:
         """Один ответ и одна попытка исправления; без текстового парсера."""
         # method=function_calling не требует нативной строгой JSON Schema у провайдера.
         # Если модель не поддерживает tools, завершаем запуск с явной ошибкой.
+        session = getattr(self, "session", None)
+        if session is not None:
+            role_id = current["profile"]["id"]
+            response, instructions = await session.begin_turn(role_id, turn, voting)
+            if response is not None:
+                answer = PlayerTurn(speech=response.get("content", "Голос игрока принят."),
+                                    vote=response.get("vote"), own_contribution_millions=None,
+                                    own_levers={}, demands=[], responses=[], withdrawn_demands=[], addressed_to=None)
+                _, action = prepare_player_turn(answer, current["name"], state, levers_config, total_cost, voting)
+                return answer, action
+            if instructions:
+                messages = [*messages, HumanMessage(content="Инструкции игрока для этой роли:\n" + "\n".join(instructions))]
         llm = current["llm"]
         timeout = float(getattr(self, "request_timeout_seconds", 60))
         # ChatOpenAI уже содержит созданные SDK-клиенты. Одного model_copy с
@@ -402,6 +414,9 @@ class NegotiationEngine:
 
     def _save_progress(self, status="running", error=None):
         store = getattr(self, "_run_store", None)
+        session = getattr(self, "session", None)
+        if status == "running" and session is not None:
+            session.record_history(self._live_history)
         if store is None:
             return None
         state = self._live_state
@@ -609,7 +624,7 @@ class NegotiationEngine:
                 raise ValueError("Имя игрока не может быть пустым.")
             if not prompt:
                 raise ValueError(f"Промпт пуст для игрока '{name}'.")
-            if llm is None:
+            if llm is None and profile.get("control_mode") != "human":
                 raise ValueError(f"Языковая модель не инициализирована для игрока '{name}'.")
 
             if (getattr(self, "use_rag", True)
@@ -668,6 +683,13 @@ class NegotiationEngine:
             },
             "demands": [],
         }
+        for role in getattr(self, "initial_roles", []):
+            answer = PlayerTurn(speech="Начальные настройки", vote=None,
+                                own_contribution_millions=role["pledged_rub"] / 1_000_000,
+                                own_levers=role["conditions"], demands=[], responses=[],
+                                withdrawn_demands=[], addressed_to=None)
+            state, _ = prepare_player_turn(answer, names_by_id[role["role_id"]],
+                                           state, levers_config, total_cost)
 
         return players, names, state, settings_data
 
@@ -782,6 +804,8 @@ class NegotiationEngine:
                 current_idx = name_to_idx[silent_longest]
 
             current = players[current_idx]
+            if getattr(self, "session", None) is not None:
+                current = players[b_turn]
             speaker = current["name"]
             last_speaker_name = speaker
 
@@ -871,7 +895,7 @@ class NegotiationEngine:
 
         # Проверяем, нужен ли Last Call (Финальный раунд закрытия дефицита)
         total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-        if total_c < (total_cost - 100_000.0):
+        if getattr(self, "session", None) is None and total_c < (total_cost - 100_000.0):
             turn_counter = await self._run_last_call(
                 players=players,
                 state=state,
@@ -884,11 +908,11 @@ class NegotiationEngine:
 
         return turn_counter
 
-    async def _run_last_call(self, players: list[dict], state: dict, history: list[dict], rules: str, turn_counter: int, levers_config: list[dict], total_cost: float) -> int:
+    async def _run_last_call(self, players: list[dict], state: dict, history: list[dict], rules: str, turn_counter: int, levers_config: list[dict], total_cost: float, *, amendments: bool = False) -> int:
         for current in players:
             total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
             cur_deficit = max(0.0, total_cost - total_c)
-            if cur_deficit <= 1000:
+            if not amendments and cur_deficit <= 1000:
                 break
 
             speaker = current["name"]
@@ -898,7 +922,7 @@ class NegotiationEngine:
             spent_levers = p_state.get("spent_on_levers", 0.0)
             available_money = max(0.0, base_budget - spent_levers - current_contrib)
 
-            if base_budget <= 0 and not any(l["owner"] == speaker for l in levers_config):
+            if not amendments and base_budget <= 0 and not any(l["owner"] == speaker for l in levers_config):
                 continue
 
             turn_counter += 1
@@ -922,6 +946,14 @@ class NegotiationEngine:
                 "Это твой последний шанс подтвердить или увеличить свой взнос, скорректировать параметры или согласовать компромисс. "
                 "Если ты не можешь увеличить взнос, подтверди свою окончательную позицию."
             )
+
+            if amendments:
+                system_message = (
+                    "РАУНД 3: ПОПРАВКИ. Предложи поправку к текущим договорённостям или подтверди позицию. "
+                    "Учитывай все опубликованные реплики. Меняй только обязательства своей роли."
+                )
+                prompt = (f"Сторона: {speaker}\n\n{render_draft_treaty(state, levers_config, total_cost)}"
+                          f"\n\n{render_history(history)}")
 
             prompt += "\n\n" + await self._rag_context(speaker, current["profile"], history, 2, retrieve=False)
 
@@ -950,7 +982,8 @@ class NegotiationEngine:
         num_players = len(players)
         total_money = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
         deficit = max(0.0, total_cost - total_money)
-        majority_threshold = (num_players // 2) + 1
+        session = getattr(self, "session", None)
+        majority_threshold = num_players if session is not None else (num_players // 2) + 1
 
         voting_records = []
 
@@ -979,9 +1012,13 @@ class NegotiationEngine:
                 "Прими взвешенное решение: если компромисс приемлем, допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ. "
                 "Не вспоминай эмоциональные споры из диалога — голосуй исключительно по тексту Соглашения и своему чек-листу! "
                 "Верни структурированный голос в vote, обоснование — в speech. "
-                f"Соглашение принимается большинством голосов (не менее {majority_threshold} из {num_players}). Дефицит бюджета (при наличии) фиксируется в протоколе для покрытия из резервных фондов."
+                + (f"Соглашение принимается единогласно ({num_players} из {num_players}). " if session is not None else
+                   f"Соглашение принимается большинством голосов (не менее {majority_threshold} из {num_players}). ")
+                + "Дефицит бюджета (при наличии) фиксируется в протоколе для покрытия из резервных фондов."
             )
 
+            if session is not None:
+                prompt += "\n\nПрогноз по протоколу:\n" + session.forecast_context()
             prompt += "\n\n" + await self._rag_context(speaker, current["profile"], history, 3, retrieve=False)
 
             answer, action = await self._structured_turn(
@@ -991,6 +1028,8 @@ class NegotiationEngine:
             )
             command = answer.speech if answer is not None else ""
             vote_decision = action["vote"]
+            if session is not None and vote_decision is None:
+                raise ValueError("Не получен действительный голос роли")
             vote_comment = action["comment"]
 
             voting_records.append({
@@ -1081,16 +1120,30 @@ class NegotiationEngine:
             max_turns = max(5, int(settings_data.get("max_rounds") or getattr(self, "turns", 15) or 15))
             self._live_players, self._live_history = players, history
             self._live_state, self._live_cost, self._live_levers = state, total_cost, levers_config
-            self._run_store = run_store if run_store is not None else RunStore()
+            session = getattr(self, "session", None)
+            if session is None or run_store is not None:
+                self._run_store = run_store if run_store is not None else RunStore()
             self._save_progress()
-            async with asyncio.timeout(game_timeout):
+            if session is not None:
+                await session.begin_phase("positions")
+            async with asyncio.timeout(game_timeout if session is None else None):
                 turn_counter = await self._run_phase1(players, state, history, rules, 0, levers_config, total_cost)
+                if session is not None:
+                    await session.begin_phase("negotiation")
+                    max_turns = len(players)
                 turn_counter = await self._run_phase2(players, state, history, rules, turn_counter, max_turns, levers_config, total_cost)
+                if session is not None:
+                    await session.begin_phase("amendments")
+                    turn_counter = await self._run_last_call(players, state, history, rules, turn_counter,
+                                                          levers_config, total_cost, amendments=True)
+                    await session.prepare_protocol(state, [p["profile"] for p in players], total_cost, levers_config)
+                    await session.begin_phase("voting")
                 result = await self._run_phase3(players, state, history, turn_counter, levers_config, total_cost)
             result["status"] = "completed"
             result["error"] = None
             result["debug"] = self._debug_data(history, state)
-            self._run_store.save(result)
+            if self._run_store is not None:
+                self._run_store.save(result)
             self.status = "Игра завершена"
             return result
         except asyncio.CancelledError:

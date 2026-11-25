@@ -42,7 +42,7 @@ def public_scenario() -> dict:
     }
 
 
-def game_profiles(strategies, model_factory) -> list[dict]:
+def game_profiles(strategies, model_factory, *, human_roles=()) -> list[dict]:
     profiles = []
     for role in ROLES:
         role_id, name = role["player_id"], role["player_name"]
@@ -57,7 +57,8 @@ def game_profiles(strategies, model_factory) -> list[dict]:
             "expected_own_share": role["expected_own_share"], "desired_responsible": role["desired_responsible"],
             "personal_context": context, "motivation": role["motivation"],
             "personal_history": role["personal_history"], "prompt": prompt,
-            "llm": model_factory(role_id, role["temperature"]),
+            **({"control_mode": "human"} if role_id in human_roles else {}),
+            "llm": None if role_id in human_roles else model_factory(role_id, role["temperature"]),
         })
     return profiles
 

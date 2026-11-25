@@ -1,0 +1,324 @@
+"""Settings validation and projections for the interactive game API."""
+
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, StringConstraints
+
+from consequences_model import forecast
+from consequences_model.catalog import HORIZON_MONTHS, SUBSYSTEM_LABELS
+from negotiation_game.engine import _get_default_settings
+from negotiation_game.rules import is_owner
+
+from .results import ROLE_BY_NAME, VOTES, illustration
+from .scenario import ROLES, public_scenario
+
+
+class RequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+Content = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=6000)]
+Vote = Literal["for", "against", "abstain"]
+SPEECH_PHASES = {"positions", "negotiation", "amendments"}
+LEVERS = _get_default_settings()["levers"]
+ROLE_LEVERS = {role["player_id"]: [lever for lever in LEVERS if is_owner(lever["owner"], role["player_name"])]
+               for role in ROLES}
+
+
+class RoleSettings(RequestBody):
+    role_id: str
+    control_mode: Literal["ai", "human"]
+    pledged_rub: Annotated[StrictInt, Field(ge=0)]
+    conditions: dict[str, StrictBool | StrictInt | StrictStr]
+    strategy: Content | None = None
+
+
+class Settings(RequestBody):
+    roles: Annotated[list[RoleSettings], Field(min_length=5, max_length=5)]
+
+
+class Speech(RequestBody):
+    type: Literal["speech"]
+    content: Content
+
+
+class Ballot(RequestBody):
+    type: Literal["vote"]
+    vote: Vote
+
+
+ManualInput = Annotated[Speech | Ballot, Field(discriminator="type")]
+
+
+class Instruction(RequestBody):
+    content: Content
+
+
+class FieldError(BaseModel):
+    path: list[str | int]
+    message: str
+
+
+class ApiError(BaseModel):
+    code: str
+    message: str
+    field_errors: list[FieldError] = Field(default_factory=list)
+
+
+class ConditionSchema(BaseModel):
+    id: str
+    label: str
+    description: str
+    type: Literal["boolean", "integer", "string"]
+    required: bool
+    default: StrictBool | StrictInt | StrictStr
+    cost_rub: int
+    allowed: list[StrictBool | StrictInt | StrictStr] | None = None
+    min_value: int | None = None
+    max_value: int | None = None
+
+
+class RoleSettingsSchema(BaseModel):
+    pledged_rub_max: int
+    conditions: list[ConditionSchema]
+
+
+class Role(BaseModel):
+    id: str
+    name: str
+    interest: str
+
+
+class Scenario(BaseModel):
+    title: str
+    briefing: str
+    version: str
+    role_order: list[str]
+    roles: list[Role]
+    total_cost_rub: int
+    max_bargaining_turns: int
+    role_settings_schema: dict[str, RoleSettingsSchema]
+
+
+class SavedRoleSettings(RoleSettings):
+    spent_on_conditions_rub: int
+
+
+class SavedSettings(BaseModel):
+    roles: list[SavedRoleSettings]
+
+
+Phase = Literal["positions", "negotiation", "amendments", "preparing_protocol", "forecasting", "voting",
+                "calculating_result"]
+
+
+class Message(BaseModel):
+    message_id: str
+    turn_id: str
+    role_id: str
+    phase: Phase
+    content: str
+
+
+class SpeechRequest(BaseModel):
+    input_id: str
+    role_id: str
+    type: Literal["speech"]
+    turn_id: str
+
+
+class VoteRequest(BaseModel):
+    input_id: str
+    role_id: str
+    type: Literal["vote"]
+    protocol_version: int
+    allowed_votes: list[Vote]
+
+
+class Funding(BaseModel):
+    role_id: str
+    amount_rub: int | float
+
+
+class ProtocolItem(BaseModel):
+    item_id: str
+    title: str
+    description: str
+    responsible_role_ids: list[str]
+    funding: list[Funding]
+    value: StrictBool | StrictInt | StrictStr | None = None
+
+
+class GameProtocol(BaseModel):
+    version: int
+    items: list[ProtocolItem]
+
+
+class Indicator(BaseModel):
+    id: str
+    label: str
+    unit: str
+    initial_value: str | int | float | None
+    year_one_value: str | int | float
+    final_value: str | int | float
+
+
+class Projection(BaseModel):
+    protocol_version: int
+    basis: Literal["proposed_protocol", "accepted_protocol", "no_agreement"]
+    period_months: int
+    indicators: list[Indicator]
+    outcome_title: str
+    executed_rub: float
+    commissioning_month: int | None
+    herald_text: str
+    image_url: str | None
+
+
+class RoleVote(BaseModel):
+    role_id: str
+    vote: Vote
+
+
+class VoteSummary(BaseModel):
+    for_count: int = Field(alias="for")
+    against: int
+    abstain: int
+    votes: list[RoleVote]
+
+
+class GameSnapshot(BaseModel):
+    game_id: str
+    status: Literal["draft", "running", "completed", "cancelled", "failed"]
+    phase: Phase | None
+    pause_state: Literal["none", "requested", "paused"]
+    last_event_id: int
+    expires_at: str
+    available_actions: list[str]
+    scenario: Scenario
+    settings: SavedSettings
+    current_role_id: str | None
+    messages: list[Message]
+    pending_input: Annotated[SpeechRequest | VoteRequest, Field(discriminator="type")] | None
+    protocol: GameProtocol | None
+    forecast: Projection | None
+    protocol_status: Literal["pending", "accepted", "rejected"]
+    vote_summary: VoteSummary | None
+    result: Projection | None
+    error: ApiError | None
+
+
+class MessageCreated(BaseModel):
+    event_id: int
+    type: Literal["message.created"]
+    payload: Message
+
+
+class StateChanged(BaseModel):
+    event_id: int
+    type: Literal["settings.saved", "phase.changed", "turn.started", "input.requested", "input.resolved", "pause.changed",
+                  "vote.closed", "game.completed", "game.cancelled", "game.failed"]
+    payload: dict
+
+
+class EventPage(BaseModel):
+    events: list[Annotated[MessageCreated | StateChanged, Field(discriminator="type")]]
+    next_cursor: int
+    has_more: bool
+
+
+class InstructionAccepted(BaseModel):
+    instruction_id: str
+    applies_to: Literal["next_unstarted_speech"]
+
+
+ERROR_RESPONSES = {status: {"model": ApiError} for status in (404, 409, 422)}
+
+
+def settings_schema() -> dict:
+    return {role["player_id"]: {
+        "pledged_rub_max": int(role["budget_millions"] * 1_000_000),
+        "conditions": [{"id": item["id"], "label": item["title"], "description": item["description"],
+                        "type": {"bool": "boolean", "int": "integer", "str": "string"}[item["type"]],
+                        "required": False, "default": item["default"], "cost_rub": int(item.get("cost", 0)),
+                        **{key: item[key] for key in ("allowed", "min_value", "max_value") if key in item}}
+                       for item in ROLE_LEVERS[role["player_id"]]],
+    } for role in ROLES}
+
+
+def scenario_contract() -> dict:
+    return {**public_scenario(), "version": "1", "role_order": [role["player_id"] for role in ROLES],
+            "max_bargaining_turns": len(ROLES), "role_settings_schema": settings_schema()}
+
+
+def default_settings() -> dict:
+    return {"roles": [{"role_id": role_id, "control_mode": "ai", "pledged_rub": 0, "strategy": None,
+                       "conditions": {lever["id"]: lever["default"] for lever in levers},
+                       "spent_on_conditions_rub": 0} for role_id, levers in ROLE_LEVERS.items()]}
+
+
+def validate_settings(settings: Settings) -> tuple[dict, list]:
+    schema = settings_schema()
+    roles = {}
+    errors = []
+    for index, role in enumerate(settings.roles):
+        path = ["roles", index]
+        if role.role_id not in schema or role.role_id in roles:
+            errors.append({"path": [*path, "role_id"], "message": "Укажите известную роль один раз."})
+            continue
+        definition = schema[role.role_id]
+        levers = {item["id"]: item for item in definition["conditions"]}
+        values = {lever_id: item["default"] for lever_id, item in levers.items()}
+        for lever_id, value in role.conditions.items():
+            item = levers.get(lever_id)
+            condition_path = [*path, "conditions", lever_id]
+            if item is None:
+                errors.append({"path": condition_path, "message": "Условие недоступно для этой роли."})
+            elif (type(value) is not {"boolean": bool, "integer": int, "string": str}[item["type"]]
+                  or ("allowed" in item and value not in item["allowed"])
+                  or (type(value) is int and not item.get("min_value", value) <= value <= item.get("max_value", value))):
+                errors.append({"path": condition_path, "message": "Недопустимое значение условия."})
+            else:
+                values[lever_id] = value
+        spent = sum(levers[key]["cost_rub"] for key, value in values.items()
+                    if value is True or (type(value) is int and value > 0))
+        if role.pledged_rub > definition["pledged_rub_max"]:
+            errors.append({"path": [*path, "pledged_rub"], "message": "Взнос превышает бюджет роли."})
+        roles[role.role_id] = {**role.model_dump(), "conditions": values, "spent_on_conditions_rub": spent}
+    return {"roles": [roles[role_id] for role_id in schema if role_id in roles]}, errors
+
+
+def make_protocol(state: dict, levers: list[dict]) -> dict:
+    funding = [{"role_id": role_id, "amount_rub": state["players"][name]["contribution"] or 0}
+               for role_id, name in state["player_ids"].items()]
+    items = [{"item_id": "project_funding", "title": "Финансирование проекта",
+              "description": "Финансирование проекта по итогам дебатов.",
+              "responsible_role_ids": [row["role_id"] for row in funding if row["amount_rub"]], "funding": funding}]
+    for lever in levers:
+        value = state["levers"][lever["id"]]
+        owners = [role_id for role_id, name in state["player_ids"].items() if is_owner(lever["owner"], name)]
+        items.append({"item_id": lever["id"], "title": lever["title"], "description": lever["description"],
+                      "value": value, "responsible_role_ids": owners, "funding": []})
+    return {"version": 1, "items": items}
+
+
+def votes(raw: dict) -> dict:
+    rows = [{"role_id": ROLE_BY_NAME[row["player"]], "vote": VOTES[row["vote"]]}
+            for row in raw["voting_summary"]["records"]]
+    return {**{value: sum(row["vote"] == value for row in rows) for value in ("for", "against", "abstain")},
+            "votes": rows}
+
+
+def projection(raw: dict, version: int, *, basis: str, images: bool) -> dict:
+    prediction = forecast(raw, no_agreement=basis == "no_agreement")
+    year_one = prediction["state"]["year_1"]["subsystems"]
+    year_ten = prediction["state"]["year_10"]["subsystems"]
+    outcome = prediction["outcome"]
+    return {"protocol_version": version, "basis": basis, "period_months": HORIZON_MONTHS,
+            "indicators": [{"id": key, "label": label, "unit": "оценка", "initial_value": None,
+                            "year_one_value": year_one[key], "final_value": year_ten[key]}
+                           for key, label in SUBSYSTEM_LABELS.items()],
+            "outcome_title": outcome["name"], "executed_rub": prediction["paid"],
+            "commissioning_month": prediction["commissioning_month"], "herald_text": prediction["herald_text"],
+            "image_url": (f"/api/v1/illustrations/{outcome['id']}.png"
+                          if images and illustration(outcome["id"]) else None)}
