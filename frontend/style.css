@@ -353,6 +353,71 @@ html, body {
   display: block;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+#game-error {
+  position: fixed;
+  z-index: 2;
+  left: 1rem;
+  bottom: 1rem;
+  max-width: min(32rem, calc(100% - 2rem));
+  padding: .75rem 1rem;
+  border: 1px solid #842424;
+  background: #fff8f7;
+  color: #842424;
+}
+
+.game-panel {
+  display: grid;
+  gap: .75rem;
+  padding: 1rem 0;
+  align-self: stretch;
+}
+
+.game-panel label {
+  display: grid;
+  gap: .35rem;
+}
+
+.game-panel :is(input, select, textarea, button) {
+  font: inherit;
+  min-width: 0;
+}
+
+.game-panel :is(input:not([type="checkbox"]), select, textarea, button) {
+  padding: .45rem;
+}
+
+.game-panel input[type="checkbox"] {
+  justify-self: start;
+}
+
+.game-panel textarea {
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.game-panel [aria-invalid="true"] {
+  outline: 2px solid #842424;
+}
+
+.menu-view[data-menu-view="debate"] .menu-grid {
+  max-height: calc(50% - 24px);
+  overflow-y: auto;
+}
+
+.speech-item.restored {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+.herald-text {
+  white-space: pre-wrap;
+}
+
 /* ==========================================================================
    АДАПТИВНОСТЬ ДЛЯ РАЗНЫХ РАЗРЕШЕНИЙ (от 4:3 до 16:9 и мобильных)
    ========================================================================== */
@@ -414,5 +479,9 @@ html, body {
     top: auto;
     grid-template-columns: 1fr;
     gap: 20px;
+  }
+  .menu-view[data-menu-view="debate"] .menu-grid {
+    max-height: none;
+    overflow: visible;
   }
 }

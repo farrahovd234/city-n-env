@@ -9,6 +9,7 @@
 <body>
   <div class="screen-wrapper">
     <main class="screen-frame" data-current-screen="start">
+      <p id="game-error" role="alert" hidden></p>
       <!-- ====================================================================
            ЛЕВЫЕ ТРИ КОЛОНКИ: ИНФОРМАЦИОННЫЙ БЛОК (Сменяется без перезагрузки)
            ==================================================================== -->
@@ -48,12 +49,7 @@
 
         <!-- Экран 3: Настройка роли (Серые прямоугольники как в Figma) -->
         <div class="screen-view" data-screen-view="settings">
-          <div class="settings-placeholders">
-            <div class="placeholder-rect placeholder-rect-1"></div>
-            <div class="placeholder-rect placeholder-rect-2"></div>
-            <div class="placeholder-rect placeholder-rect-3"></div>
-            <div class="placeholder-rect placeholder-rect-4"></div>
-          </div>
+          <form id="role-settings" class="game-panel"></form>
         </div>
 
         <!-- Экран 4: Дебаты (Лента реплик снизу вверх) -->
@@ -61,25 +57,16 @@
           <div class="debate-feed" id="debate-feed">
             <!-- Реплики появляются снизу и уходят вверх -->
           </div>
+          <section id="protocol-panel" class="game-panel" hidden></section>
+          <form id="manual-input" class="game-panel" hidden></form>
         </div>
 
         <!-- Экран 5: Итоги через 10 лет (Чистое фото и отчет) -->
         <div class="screen-view" data-screen-view="final">
-          <div class="final-photo-container">
-            <img id="consequence-photo" src="assets/consequences/compromise.png" alt="Город N через 10 лет">
+          <div class="final-photo-container" id="final-photo" hidden>
+            <img id="consequence-photo" alt="Город N через 10 лет">
           </div>
-          <article class="final-text" id="final-text-content">
-            <p id="summary-general">
-              <strong>Общегородской статус:</strong> К 2036 году проект комплексной модернизации очистных сооружений Города N успешно завершён. 
-              Концентрация загрязняющих веществ в акватории реки снизилась на 82%, возвращена способность экосистемы к естественному самоочищению. 
-              Запахи сероводорода в жилых кварталах устранены полностью.
-            </p>
-            <p id="summary-role">
-              <strong>Судьба стороны (Администрация):</strong> Мэрия выполнила целевые показатели нацпроекта «Экология». 
-              Город избежал федеральных штрафов и бюджетного коллапса, доверие граждан к муниципальным институтам укрепилось, 
-              а индекс инвестиционной привлекательности города N поднялся на 14 пунктов.
-            </p>
-          </article>
+          <article class="final-text" id="final-text-content"></article>
         </div>
       </section>
 
@@ -114,44 +101,36 @@
         <div class="menu-view" data-menu-view="settings">
           <h1 class="menu-title">НАСТРОЙТЕ РОЛЬ</h1>
           <nav class="menu-grid">
-            <div class="menu-items-group" id="roles-nav">
-              <button type="button" class="menu-btn active" data-role="administration">АДМИНИСТРАЦИЯ</button>
-              <button type="button" class="menu-btn" data-role="holding">ХОЛДИНГ</button>
-              <button type="button" class="menu-btn" data-role="region">РЕГИОН</button>
-              <button type="button" class="menu-btn" data-role="ngo">ЭКО НКО</button>
-              <button type="button" class="menu-btn" data-role="citizens">ЖИТЕЛИ</button>
-            </div>
+            <div class="menu-items-group" id="roles-nav"></div>
             <div class="menu-action-col">
-              <a href="#debate" class="menu-link" id="submit-settings-btn">ГОТОВО</a>
+              <button type="submit" form="role-settings" class="menu-btn" id="submit-settings-btn">ГОТОВО</button>
             </div>
           </nav>
         </div>
 
         <!-- Меню: Дебаты -->
         <div class="menu-view" data-menu-view="debate">
-          <h1 class="menu-title">ИДУТ ДЕБАТЫ</h1>
+          <h1 class="menu-title" id="phase-title">ИДУТ ДЕБАТЫ</h1>
           <nav class="menu-grid">
             <div class="menu-items-group">
               <button type="button" class="menu-btn" id="pause-btn">ПАУЗА</button>
-              <a href="#settings" class="menu-link">ПАРАМЕТРЫ</a>
-              <a href="#final" class="menu-link" id="stop-btn">СТОП</a>
+              <button type="button" class="menu-btn" id="stop-btn">СТОП</button>
+              <form id="instruction-form" class="game-panel" hidden>
+                <label>Роль<select id="instruction-role"></select></label>
+                <label>Инструкция на следующий ход<textarea id="instruction-text" required maxlength="6000"></textarea></label>
+                <button type="submit">Отправить</button>
+              </form>
             </div>
           </nav>
         </div>
 
         <!-- Меню: Итоги -->
         <div class="menu-view" data-menu-view="final">
-          <h1 class="menu-title">ЧТО СТАЛО ЧЕРЕЗ 10 ЛЕТ</h1>
+          <h1 class="menu-title" id="result-title">РЕЗУЛЬТАТ</h1>
           <nav class="menu-grid">
-            <div class="menu-items-group" id="final-roles-nav">
-              <button type="button" class="menu-btn active" data-role="administration">АДМИНИСТРАЦИЯ</button>
-              <button type="button" class="menu-btn" data-role="holding">ХОЛДИНГ</button>
-              <button type="button" class="menu-btn" data-role="region">РЕГИОН</button>
-              <button type="button" class="menu-btn" data-role="ngo">ЭКО НКО</button>
-              <button type="button" class="menu-btn" data-role="citizens">ЖИТЕЛИ</button>
-            </div>
+            <div class="menu-items-group"><button type="button" class="menu-btn" id="retry-result" hidden>ПОВТОРИТЬ РАСЧЁТ</button></div>
             <div class="menu-action-col">
-              <a href="#start" class="menu-link">ЗАВЕРШИТЬ</a>
+              <a href="#start" id="finish-game" class="menu-link">ЗАВЕРШИТЬ</a>
             </div>
           </nav>
         </div>
