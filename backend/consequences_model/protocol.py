@@ -5,8 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .catalog import (CONDITION_DEFAULTS, CONDITIONS, GAME_VOTES, GUILT, GUILT_LABELS, PLANT_MODE, PLANT_MODES,
-                      PLANT_REDUCED, ROLE_LABELS, TIMELINE, TIMELINE_MONTHS, YES_NO_CONDITIONS)
+from .catalog import (CONDITION_DEFAULTS, CONDITIONS, GAME_VOTES, GUILT, GUILT_LABELS, MIN_COVERAGE_TO_BUILD,
+                      PLANT_MODE, PLANT_MODES, PLANT_REDUCED, ROLE_LABELS, TIMELINE, TIMELINE_MONTHS, YES_NO_CONDITIONS)
+
+
+def meets_funding_threshold(paid: float, total: float) -> bool:
+    return paid / total >= MIN_COVERAGE_TO_BUILD
 
 
 @dataclass(frozen=True)

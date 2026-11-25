@@ -7,7 +7,7 @@ from typing import Any
 from .catalog import (CONDITIONS, CORRECTIONS, FULL, MIN_COVERAGE_TO_BUILD, NONE, PARTIAL, RECONSTRUCTION_OWNER,
                       ROLE_LABELS, SENSORS, SOURCE_FORMALIZATION, SOURCE_OUTCOMES, SOURCE_TABLE_4,
                       SOURCE_TABLE_5_LAW, SUBSYSTEM_CRITERIA, SUBSYSTEM_LABELS, VOTE_LABELS, WATER, WATER_MAX_MONTHS)
-from .protocol import Protocol
+from .protocol import Protocol, meets_funding_threshold
 from .report import millions
 
 
@@ -60,7 +60,7 @@ def money_rules(protocol: Protocol, facts: dict[str, Any]) -> list[dict[str, str
     elif facts["month"] is not None:
         delays = [f"обещано {facts['promised_months']}"] + [f"+{months} — {reason}" for months, reason in facts["delays"]]
         text = f"{covered} → очистные введены на {facts['month']}-м месяце: " + ", ".join(delays) + "."
-    elif paid < total * MIN_COVERAGE_TO_BUILD:
+    elif not meets_funding_threshold(paid, total):
         text = f"{covered}, меньше {MIN_COVERAGE_TO_BUILD:.0%} → очистные не введены за 10 лет."
     elif facts["reconstruction"] == NONE:
         text = f"{covered}. Реконструкция не выполняется, поэтому очистные не введены."

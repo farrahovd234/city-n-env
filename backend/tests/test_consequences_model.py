@@ -512,5 +512,5 @@ class CommandLineTests(unittest.TestCase):
             path.write_text(json.dumps(EVERY_OUTCOME["Открытая река"]), encoding="utf-8")
             output = json.loads(self.run_cli(str(path), "--json"))
         self.assertEqual(output["outcome"]["name"], "Открытая река")
-        self.assertEqual(output["model_version"], 2)
+        self.assertEqual(output["model_version"], 3)
         self.assertEqual(len(output["financial_load"]), 5)

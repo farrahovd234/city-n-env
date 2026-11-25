@@ -6,11 +6,11 @@ from dataclasses import asdict
 from typing import Any
 
 from .catalog import (CONDITIONS, DELAY_PARTIAL_RECONSTRUCTION, DELAY_UNDERFUNDED, FULL, GUILT, HORIZON_MONTHS,
-                      MIN_COVERAGE_TO_BUILD, MODEL_VERSION, NGO, NONE, OUTCOMES, PAID_PART, PARTIAL,
+                      MODEL_VERSION, NGO, NONE, OUTCOMES, PAID_PART, PARTIAL,
                       RECONSTRUCTION_OWNER, RESIDENTS, ROLE_LABELS, SENSORS, STANDALONE_CONDITIONS, WATER,
                       WATER_MAX_MONTHS)
 from .explain import fired_rules
-from .protocol import Protocol, read_protocol
+from .protocol import Protocol, meets_funding_threshold, read_protocol
 from .report import render_herald_prompt, render_herald_text, render_report
 from .state import city_state, fates
 
@@ -47,14 +47,14 @@ def paid_in(protocol: Protocol, execution: dict[str, Any]) -> float:
 
 def commissioning(protocol: Protocol, execution: dict[str, Any]) -> tuple[int | None, list[tuple[int, str]]]:
     """Месяц ввода очистных от голосования (None — не введены к году 10) и задержки с причинами."""
-    coverage = paid_in(protocol, execution) / protocol.total_cost
+    paid = paid_in(protocol, execution)
     reconstruction = execution["reconstruction"]
-    if reconstruction == NONE or coverage < MIN_COVERAGE_TO_BUILD:
+    if reconstruction == NONE or not meets_funding_threshold(paid, protocol.total_cost):
         return None, []
     delays = []
     if reconstruction == PARTIAL:
         delays.append((DELAY_PARTIAL_RECONSTRUCTION, "реконструкция выполнена частично"))
-    if coverage < 1:
+    if paid < protocol.total_cost:
         delays.append((DELAY_UNDERFUNDED, "смета покрыта не полностью"))
     month = protocol.promised_months + sum(months for months, _ in delays)
     return (month, delays) if month <= HORIZON_MONTHS else (None, delays)

@@ -67,7 +67,7 @@ DELAY_PARTIAL_RECONSTRUCTION = 12  # мес.
 DELAY_UNDERFUNDED = 24  # мес.
 HORIZON_MONTHS = 120
 
-MODEL_VERSION = 2
+MODEL_VERSION = 3
 
 # Каталог исходов: название, условие словами (для объяснения) и описание для отчёта и «Вестника».
 OUTCOMES = {

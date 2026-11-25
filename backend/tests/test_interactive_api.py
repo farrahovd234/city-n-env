@@ -201,7 +201,7 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final["vote_summary"]["for"], 5 if accepted else 4)
         self.assertEqual(final["result"]["basis"], "accepted_protocol" if accepted else "no_agreement")
         self.assertEqual(final["result"]["outcome_title"], "Недострой" if accepted else "Каждый сам за себя")
-        self.assertEqual(final["result"]["model_version"], 2)
+        self.assertEqual(final["result"]["model_version"], 3)
         self.assertEqual(final["result"]["financial_load"][0]["committed_rub"], 50_000_000)
         self.assertEqual(final["result"]["executed_rub"], 30_000_000 if accepted else 0)
         self.assertEqual(len(final["result"]["indicators"]), 5)
@@ -223,8 +223,7 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
         stored = SessionStore(self.runs).get(final["game_id"])
         self.assertEqual(stored["snapshot"]["result"], final["result"])
         if not accepted:
-            stored["snapshot"]["result"].pop("model_version")
-            stored["snapshot"]["result"]["outcome_title"] = "Застой"
+            stored["snapshot"]["result"].update(model_version=2, herald_text="Прежний формат газеты.")
             SessionStore(self.runs).save(stored)
             restored = await self.snapshot()
             self.assertEqual(restored["result"], final["result"])
@@ -233,8 +232,8 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
             SessionStore(self.runs).save(stored)
             with self.assertLogs("web_backend.sessions", level="WARNING"):
                 fallback = await self.snapshot()
-            self.assertEqual(fallback["result"]["outcome_title"], "Застой")
-            self.assertIsNone(fallback["result"]["model_version"])
+            self.assertEqual(fallback["result"]["herald_text"], "Прежний формат газеты.")
+            self.assertEqual(fallback["result"]["model_version"], 2)
         stored["snapshot"]["expires_at"] = now().isoformat()
         SessionStore(self.runs).save(stored)
         self.assertEqual((await self.api.get(f"/api/v1/games{self.path}")).status_code, 404)

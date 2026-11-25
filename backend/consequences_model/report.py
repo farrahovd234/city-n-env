@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .catalog import (ACHIEVED, CONDITIONS, FAILED, FULL, GUILT, GUILT_LABELS, MIN_COVERAGE_TO_BUILD, MOMENT_LABELS,
+from .catalog import (ACHIEVED, CONDITIONS, FAILED, FULL, GUILT, GUILT_LABELS, MOMENT_LABELS,
                       PARTIAL, PARTLY, PLANT_MODE, RECONSTRUCTION_LABEL, RECONSTRUCTION_OWNER, ROLE_LABELS, SENSORS,
                       SUBSYSTEM_LABELS, TARIFFS, TIMELINE, VOTE_LABELS, WATER, WATER_MAX_MONTHS)
+from .protocol import meets_funding_threshold
 
 MLN = 1_000_000
 
@@ -197,7 +198,7 @@ def render_herald_text(result: dict[str, Any]) -> str:
     else:
         funding = f"В общую смету поступило {mln(paid)} из {mln(total)}."
     sentences = [lead, funding]
-    if paid < total * MIN_COVERAGE_TO_BUILD:
+    if not meets_funding_threshold(paid, total):
         sentences.append("Этой суммы не хватило для завершения стройки.")
     if outcome["id"] == "without_residents":
         sentences.append("Жители и НКО не поддержали протокол на голосовании.")

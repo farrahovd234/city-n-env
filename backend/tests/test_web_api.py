@@ -26,7 +26,7 @@ from web_backend.scenario import build_rag, rag_corpus
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 CASES = json.loads((FIXTURES / "reference_games.json").read_text())["cases"]
-CONSEQUENCES_V2 = {
+EXPECTED_CONSEQUENCES = {
     "accepted_full": ("open_river", 270_000_000, 36),
     "accepted_deficit": ("dolgostroy", 260_000_000, 60),
     "rejected_with_abstentions": ("stagnation", 0, None),
@@ -106,12 +106,12 @@ class WebGameAPITests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(result["status"], "completed", result)
                     self.assertEqual(markers_seen, {"city_residents"})
                     data = result["result"]
-                    outcome_id, executed_rub, commissioning_month = CONSEQUENCES_V2[case_name]
+                    outcome_id, executed_rub, commissioning_month = EXPECTED_CONSEQUENCES[case_name]
                     forecast_data = data["consequences"]
                     self.assertEqual(forecast_data["outcome_id"], outcome_id)
                     self.assertEqual(forecast_data["executed_rub"], executed_rub)
                     self.assertEqual(forecast_data["commissioning_month"], commissioning_month)
-                    self.assertEqual(forecast_data["model_version"], 2)
+                    self.assertEqual(forecast_data["model_version"], 3)
                     self.assertEqual(len(forecast_data["herald_text"].splitlines()), 1)
                     if images:
                         self.assertEqual(forecast_data["image_url"], f"/api/v1/illustrations/{outcome_id}.png")
