@@ -35,7 +35,8 @@ def subsystems(facts: dict[str, Any], month: int, horizon: bool) -> dict[str, st
     support, shares = facts["support"], facts["shares"]
     local_water = WATER in facts["standalone_measures"] and month <= WATER_MAX_MONTHS
     holding_paid = facts["contributions"].get(HOLDING) == FULL and shares[HOLDING] >= MEDIA_HOLDING_MIN_SHARE
-    late_without_water = facts["late_water_gap"] or (WATER not in facts["acting"] and (
+    had_water_gap = facts["late_water_gap"] and month > WATER_MAX_MONTHS
+    late_without_water = had_water_gap or (WATER not in facts["acting"] and (
         facts["month"] is None or facts["month"] > LATE_WITHOUT_WATER_MONTHS))
     return {
         # Учебник, табл. 4, 5: вода в норме и истинное состояние реки известно.

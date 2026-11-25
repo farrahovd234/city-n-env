@@ -229,6 +229,12 @@ class InteractiveAPITests(unittest.IsolatedAsyncioTestCase):
             restored = await self.snapshot()
             self.assertEqual(restored["result"], final["result"])
             self.assertEqual(restored["vote_summary"], final["vote_summary"])
+            stored["result_input"] = {"status": "completed"}
+            SessionStore(self.runs).save(stored)
+            with self.assertLogs("web_backend.sessions", level="WARNING"):
+                fallback = await self.snapshot()
+            self.assertEqual(fallback["result"]["outcome_title"], "Застой")
+            self.assertIsNone(fallback["result"]["model_version"])
         stored["snapshot"]["expires_at"] = now().isoformat()
         SessionStore(self.runs).save(stored)
         self.assertEqual((await self.api.get(f"/api/v1/games{self.path}")).status_code, 404)

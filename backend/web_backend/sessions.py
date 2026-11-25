@@ -110,7 +110,10 @@ class GameSession:
         result = state["result"]
         if (state["status"] == "completed" and result and result.get("model_version") != MODEL_VERSION
                 and self.record.get("result_input")):
-            result = self.final_projection()
+            try:
+                result = self._final_projection()
+            except Exception:
+                logger.warning("Не удалось пересчитать сохранённую партию %s", state["game_id"], exc_info=True)
         return {**state, "result": result, "available_actions": actions}
 
     def save(self):
@@ -226,14 +229,14 @@ class GameSession:
         self.emit("game.failed")
         self.save()
 
-    def final_projection(self):
+    def _final_projection(self):
         raw = self.record["result_input"]
         basis = "accepted_protocol" if self.state["protocol_status"] == "accepted" else "no_agreement"
         return projection(raw, self.state["protocol"]["version"], basis=basis, images=self.images)
 
     async def calculate_result(self):
         await self.checkpoint()
-        result = await asyncio.to_thread(self.final_projection)
+        result = await asyncio.to_thread(self._final_projection)
         await self.checkpoint()
         self.state.update(status="completed", phase=None, result=result)
         self.emit("game.completed")

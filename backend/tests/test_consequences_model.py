@@ -105,6 +105,7 @@ class OutcomeTests(unittest.TestCase):
                 result = forecast(game(split, ALL_FOR, {**REFERENCE, "timeline": promised}))
                 self.assertEqual(result["commissioning_month"], promised + 24)
                 self.assertEqual(result["outcome"]["name"], expected)
+                self.assertEqual(result["state"]["year_1"]["subsystems"]["politics"], "достигнуто")
 
     def test_funding_at_exact_threshold_allows_construction(self):
         for holding, month in [(102_499_999, None), (102_500_000, 60)]:
