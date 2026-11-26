@@ -159,6 +159,7 @@ class Message(BaseModel):
     role_id: str
     phase: Phase
     content: str
+    skipped: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class SpeechRequest(BaseModel):

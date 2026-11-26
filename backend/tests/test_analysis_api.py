@@ -37,6 +37,8 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
         self.draft = created.json()
         self.path = f"/api/v1/games/{self.draft['game_id']}"
         self.role_id = self.draft["scenario"]["role_order"][0]
+        self.provider_payloads = []
+        self.model_replies = []
         self.model_reply = {
             "references": [{"message_id": "1", "quote": MOVE_QUOTE}, {"message_id": "2", "quote": REACTION_QUOTE}],
             "observation": OBSERVATION,
@@ -49,15 +51,17 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
         return {"Idempotency-Key": uuid4().hex}
 
     async def reply(self, request):
-        if self.model_reply is None:
+        model_reply = self.model_replies.pop(0) if self.model_replies else self.model_reply
+        if model_reply is None:
             return httpx.Response(503, json={"error": {"message": "fixture outage"}})
         body = json.loads(request.content)
+        self.provider_payloads.append(json.loads(body["messages"][-1]["content"]))
         name = body["tools"][0]["function"]["name"]
         return httpx.Response(200, json={"id": "fixture", "object": "chat.completion", "created": 0,
             "model": "fixture", "choices": [{"index": 0, "finish_reason": "tool_calls",
                 "message": {"role": "assistant", "content": None, "tool_calls": [
                     {"id": "fixture", "type": "function", "function": {
-                        "name": name, "arguments": json.dumps(self.model_reply, ensure_ascii=False)}}]}}]})
+                        "name": name, "arguments": json.dumps(model_reply, ensure_ascii=False)}}]}}]})
 
     async def wait_for(self, condition):
         async with asyncio.timeout(10):
@@ -98,6 +102,8 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
         response = await self.analyze()
         self.assertEqual(response.status_code, 200, response.text)
         analysis = response.json()
+        self.assertEqual(self.provider_payloads[0]["strategy"], STRATEGY)
+        self.assertEqual(self.provider_payloads[0]["messages"], completed["messages"])
         self.assertEqual(analysis["role_id"], self.role_id)
         self.assertEqual(analysis["references"], [
             {"message_id": completed["messages"][0]["message_id"], "quote": MOVE_QUOTE},
@@ -112,13 +118,25 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unverified_amount_from_model_does_not_change_result(self):
         completed = await self.complete_game()
-        self.model_reply["suggested_strategy"] = "Сразу предложи городу взнос 90 млн ₽."
-        with self.assertLogs("web_backend.analysis_api", level="WARNING"):
-            response = await self.analyze()
+        for suggestion in ("Сразу предложи городу взнос 90 млн ₽.",
+                           "Запроси у города взнос 30 млрд ₽.",
+                           "Протокол принят благодаря этому взносу."):
+            with self.subTest(suggestion=suggestion):
+                self.model_reply["suggested_strategy"] = suggestion
+                with self.assertLogs("web_backend.analysis_api", level="WARNING"):
+                    response = await self.analyze()
+                self.assertEqual(response.status_code, 502, response.text)
+                self.assertEqual(response.json()["code"], "ANALYSIS_FAILED")
+                self.assertEqual((await self.api.get(self.path)).json(), completed)
 
-        self.assertEqual(response.status_code, 502, response.text)
-        self.assertEqual(response.json()["code"], "ANALYSIS_FAILED")
-        self.assertEqual((await self.api.get(self.path)).json(), completed)
+    async def test_retry_uses_verified_second_answer(self):
+        await self.complete_game()
+        invalid = {**self.model_reply, "references": [{"message_id": "1", "quote": "Нет в исходной реплике."}]}
+        self.model_replies.extend((invalid, self.model_reply))
+        answer = await self.analyze()
+        self.assertEqual(answer.status_code, 200, answer.text)
+        self.assertEqual(answer.json()["references"], self.model_reply["references"])
+        self.assertEqual(len(self.provider_payloads), 2)
 
     async def test_analysis_requires_owner_and_completed_game(self):
         draft = await self.analyze()
@@ -145,7 +163,6 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
             "wrong author": {**valid, "references": [reaction]},
             "own reaction": {**valid, "references": [first, later_own_move]},
             "early reaction": {**valid, "references": [later_own_move, reaction]},
-            "invalid excerpt": {**valid, "strategy_excerpt": "Сначала назови предельный взнос региона."},
             "provider outage": None,
         }
         for case, model_reply in invalid_replies.items():
@@ -172,3 +189,14 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(observation, analysis["paragraph"])
         self.assertIsNone(analysis["strategy_excerpt"])
         self.assertIsNone(analysis["suggested_strategy"])
+
+    async def test_unverified_strategy_edit_does_not_hide_the_observation(self):
+        await self.complete_game()
+        self.model_reply["strategy_excerpt"] = "Сначала назови предельный взнос региона."
+        response = await self.analyze()
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertIn(OBSERVATION, result["paragraph"])
+        self.assertEqual(result["references"], self.model_reply["references"])
+        self.assertIsNone(result["strategy_excerpt"])
+        self.assertIsNone(result["suggested_strategy"])

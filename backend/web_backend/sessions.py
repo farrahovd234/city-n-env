@@ -212,6 +212,8 @@ class GameSession:
             turn = str(row["turn"])
             message = {"message_id": turn, "turn_id": turn, "role_id": role_by_name[row["speaker"]],
                        "phase": phase, "content": content}
+            if not row["command"]:
+                message["skipped"] = True
             self.state["messages"].append(message)
             self.emit("message.created", message)
         self.history_offset = len(history)

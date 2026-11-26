@@ -140,6 +140,7 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual([row["role_id"] for row in messages], list(CONTRIBUTIONS) * 3)
                     self.assertEqual(len({row["message_id"] for row in messages}), 15)
                     self.assertEqual(messages[0]["content"], "Ход пропущен: корректный ответ не получен.")
+                    self.assertTrue(messages[0]["skipped"])
                     self.assertEqual(final["protocol_status"], "accepted")
                     self.assertEqual(final["vote_summary"], {
                         "for": 5, "against": 0, "abstain": 0,

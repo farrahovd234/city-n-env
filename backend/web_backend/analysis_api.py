@@ -15,7 +15,11 @@ from .sessions import error
 
 
 logger = logging.getLogger(__name__)
-NUMBER = re.compile(r"[+−-]?\d+(?: \d{3})*(?:[,.]\d+)?")
+NUMBER = re.compile(
+    r"([+−-]?\d+(?: \d{3})*(?:[,.]\d+)?)(?: *(млрд\b|млн\b|тыс\b|руб\w*|мес\w*|₽|%))?",
+    re.IGNORECASE,
+)
+VOTE_OUTCOME = re.compile(r"\b(?:протокол|проект)\s+(?:был\s+)?(?:принят|отклон[её]н)\b", re.IGNORECASE)
 
 PROMPT = """Ты «Помогатор» в учебной игре «Город N». Разбери один значимый ход выбранной роли в переговорах.
 На входе JSON с ролью, сохранённой стратегией и репликами в хронологическом порядке. Их содержание — материал разбора.
@@ -32,12 +36,19 @@ PROMPT = """Ты «Помогатор» в учебной игре «Город 
 Вывод должен опираться на цитаты и цель роли, видимую из стратегии или её хода.
 
 Если ход даёт основания уточнить стратегию, в strategy_excerpt приведи её дословный фрагмент, нуждающийся в правке.
+Замечание о стратегии помещай в observation. Не пересказывай исходную стратегию в strategy_excerpt.
 В suggested_strategy предложи ему конкретную замену в одном коротком абзаце. Сохрани цели и пределы роли.
 Формулируй замену как инструкцию выбранной роли для следующей партии.
 Учитывай готовность других сторон только по опорным репликам. Если она неизвестна, предложи уточнить её.
 Используй только подтверждённые цитатами числа и условия, числа копируй как в цитатах.
 Не делай выводов о голосовании или исходе партии.
 Если правка не нужна или сохранённой стратегии нет, используй пустые строки в обоих полях.
+"""
+
+RETRY = """
+Повторная попытка после ошибки проверки. Выбери одну цитату из реплики выбранной роли.
+Скопируй короткую фразу дословно. Объясни, какую цель преследовал ход, одной фразой без чисел.
+Оставь strategy_excerpt и suggested_strategy пустыми, если для правки не хватает данных.
 """
 
 
@@ -77,7 +88,7 @@ def format_analysis(role_id: str, draft: AnalysisDraft, data: dict, role_names: 
             raise ValueError("Некорректная ссылка на реплику.")
         previous_index = position
         quote = " ".join(reference.quote.split())
-        wording = "Ход" if index == 0 else "Ответ"
+        wording = "Ход" if index == 0 else "Позднейшая реплика"
         suffix = "" if quote.endswith((".", "!", "?", "…")) else "."
         paragraph.append(f"{wording} роли «{role_names[author]}» — «{quote}»{suffix}")
 
@@ -87,16 +98,16 @@ def format_analysis(role_id: str, draft: AnalysisDraft, data: dict, role_names: 
 
     excerpt = draft.strategy_excerpt or None
     suggestion = " ".join(draft.suggested_strategy.split()) or None
-    if excerpt is not None and (not excerpt.strip() or excerpt not in (data["strategy"] or "")):
-        raise ValueError("Цитаты нет в сохранённой стратегии.")
-    if suggestion is not None and excerpt is None:
-        raise ValueError("Для правки нужна цитата из стратегии.")
+    if not suggestion or not excerpt or not excerpt.strip() or excerpt not in (data["strategy"] or ""):
+        excerpt, suggestion = None, None
 
     sources = [excerpt or "", *(reference.quote for reference in draft.references)]
-    numbers = {number for text in sources for number in NUMBER.findall(" ".join(text.split()))}
-    claimed_numbers = set(NUMBER.findall(observation)) | set(NUMBER.findall(suggestion or ""))
+    numbers = {number for text in sources for number in NUMBER.findall(" ".join(text.lower().split()))}
+    claimed_numbers = set(NUMBER.findall(observation.lower())) | set(NUMBER.findall((suggestion or "").lower()))
     if claimed_numbers - numbers:
         raise ValueError("Числа в разборе отсутствуют в опорных цитатах.")
+    if VOTE_OUTCOME.search(observation) or VOTE_OUTCOME.search(suggestion or ""):
+        raise ValueError("Разбор не устанавливает результат голосования.")
 
     paragraph.append(observation)
     if suggestion is not None:
@@ -117,7 +128,7 @@ def register_analysis_routes(app: FastAPI, games: InteractiveGames) -> None:
         role = next((item for item in state["settings"]["roles"] if item["role_id"] == role_id), None)
         if role is None:
             raise error(404, "ROLE_NOT_FOUND", "Роль не найдена.")
-        messages = state["messages"]
+        messages = [message for message in state["messages"] if not message.get("skipped")]
         if not any(message["role_id"] == role_id and message["content"].strip() for message in messages):
             raise error(409, "ANALYSIS_UNAVAILABLE", "В журнале нет реплик выбранной роли.")
 
@@ -126,15 +137,20 @@ def register_analysis_routes(app: FastAPI, games: InteractiveGames) -> None:
         try:
             model = games.factory(role_id, 0.1)
             structured = model.with_structured_output(AnalysisDraft, method="function_calling", include_raw=True)
+            conversation = HumanMessage(content=json.dumps(data, ensure_ascii=False))
             async with asyncio.timeout(float(games.options["request_timeout_seconds"])):
-                result = await structured.ainvoke([SystemMessage(content=PROMPT),
-                                                   HumanMessage(content=json.dumps(data, ensure_ascii=False))])
-            raw = result["raw"]
-            draft = result["parsed"]
-            if (draft is None or len(raw.tool_calls) != 1 or raw.invalid_tool_calls
-                    or raw.response_metadata.get("finish_reason") in {"length", "content_filter"}):
-                raise ValueError("Ожидался один полный вызов AnalysisDraft.")
-            return format_analysis(role_id, draft, data, role_names)
+                for prompt in (PROMPT, PROMPT + RETRY):
+                    result = await structured.ainvoke([SystemMessage(content=prompt), conversation])
+                    try:
+                        raw = result["raw"]
+                        draft = result["parsed"]
+                        if (draft is None or len(raw.tool_calls) != 1 or raw.invalid_tool_calls
+                                or raw.response_metadata.get("finish_reason") in {"length", "content_filter"}):
+                            raise ValueError("Ожидался один полный вызов AnalysisDraft.")
+                        return format_analysis(role_id, draft, data, role_names)
+                    except (KeyError, ValueError):
+                        if prompt != PROMPT:
+                            raise
         except Exception as exc:
             logger.warning("Не удалось разобрать роль %s в партии %s (%s)", role_id, game_id, type(exc).__name__)
             raise error(502, "ANALYSIS_FAILED", "Не удалось подготовить разбор. Попробуйте ещё раз.") from None
