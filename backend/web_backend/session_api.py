@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from fastapi import Body, Header, Query, Request, Response
 
 from .game_contract import (ERROR_RESPONSES, EventPage, GameSnapshot, Instruction, InstructionAccepted, ManualInput,
-                            Settings, SPEECH_PHASES, validate_settings)
+                            SetupSettings, SPEECH_PHASES, validate_setup_settings)
 from .sessions import COOKIE, SESSION_TTL, GameSession, SessionStore, error, logger, now
 
 
@@ -116,11 +116,11 @@ KeyHeader = Annotated[str | None, Header(alias="Idempotency-Key")]
 
 def register_session_routes(app, games):
     @app.put(f"{ROOT_PATH}/{{game_id}}/settings", response_model=GameSnapshot, responses=ERROR_RESPONSES)
-    async def save_settings(game_id: str, settings: Settings, request: Request):
+    async def save_settings(game_id: str, settings: SetupSettings, request: Request):
         session = games.require(game_id, request)
         if session.state["status"] != "draft":
             raise error(409, "SETTINGS_LOCKED", "Настройки зафиксированы после запуска.")
-        values, errors = validate_settings(settings)
+        values, errors = validate_setup_settings(settings)
         if errors:
             raise error(422, "INVALID_SETTINGS", "Проверьте настройки ролей.", errors)
         session.state["settings"] = values
@@ -210,6 +210,8 @@ def register_session_routes(app, games):
             role = next((role for role in state["settings"]["roles"] if role["role_id"] == role_id), None)
             if role is None:
                 raise error(404, "ROLE_NOT_FOUND", "Роль не найдена.")
+            if session.uses_questionnaires:
+                raise error(409, "INSTRUCTION_UNAVAILABLE", "Стратегии агентов задаются в анкетах до запуска партии.")
             if (state["status"] != "running" or state["phase"] not in SPEECH_PHASES
                     or role["control_mode"] != "ai"):
                 raise error(409, "INSTRUCTION_UNAVAILABLE", "Инструкция доступна для следующего хода AI-роли.")

@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from negotiation_game.engine import NegotiationEngine
 from negotiation_game.run_store import RunStore
 
+from .analysis_api import register_analysis_routes
 from .results import illustration, public_game
 from .game_contract import ERROR_RESPONSES, GameSnapshot
 from .scenario import CONFIG, ROLE_IDS, ROOT, build_rag, game_profiles, game_settings, public_scenario
@@ -175,6 +176,7 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
         return FileResponse(path, media_type="image/png")
 
     register_session_routes(app, interactive)
+    register_analysis_routes(app, interactive)
     frontend = ROOT.parent / "frontend"
     if frontend.is_dir():
         app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")

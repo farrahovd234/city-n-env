@@ -9,6 +9,7 @@ from consequences_model.catalog import HORIZON_MONTHS, SUBSYSTEM_LABELS
 from negotiation_game.engine import _get_default_settings
 from negotiation_game.rules import is_owner
 
+from .questionnaires import MILLION, QUESTIONNAIRES, build_strategy, questionnaire_answers
 from .results import ROLE_BY_NAME, VOTES, illustration
 from .scenario import ROLES, public_scenario
 
@@ -18,8 +19,12 @@ class RequestBody(BaseModel):
 
 
 Content = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=6000)]
+Answer = StrictBool | StrictInt | StrictStr
+SetupMode = Literal["manual", "automatic"]
 Vote = Literal["for", "against", "abstain"]
 SPEECH_PHASES = {"positions", "negotiation", "amendments"}
+MAX_DIALOGUE_MESSAGES = len(SPEECH_PHASES) * len(ROLES)
+CONDITIONAL_COMMITMENTS = {"tax_relief", "protest_moratorium"}
 LEVERS = _get_default_settings()["levers"]
 ROLE_LEVERS = {role["player_id"]: [lever for lever in LEVERS if is_owner(lever["owner"], role["player_name"])]
                for role in ROLES}
@@ -35,6 +40,18 @@ class RoleSettings(RequestBody):
 
 class Settings(RequestBody):
     roles: Annotated[list[RoleSettings], Field(min_length=5, max_length=5)]
+
+
+class ManualSettings(RequestBody):
+    mode: Literal["manual"]
+    answers: dict[str, dict[str, Answer]]
+
+
+class AutomaticSettings(RequestBody):
+    mode: Literal["automatic"]
+
+
+SetupSettings = Settings | Annotated[ManualSettings | AutomaticSettings, Field(discriminator="mode")]
 
 
 class Speech(RequestBody):
@@ -89,6 +106,24 @@ class Role(BaseModel):
     interest: str
 
 
+class QuestionnaireOption(BaseModel):
+    value: Answer
+    label: str
+
+
+class QuestionnaireField(BaseModel):
+    id: str
+    label: str
+    hint: str | None
+    options: list[QuestionnaireOption]
+    required: bool
+
+
+class Questionnaire(BaseModel):
+    fields: list[QuestionnaireField]
+    defaults: dict[str, Answer]
+
+
 class Scenario(BaseModel):
     title: str
     briefing: str
@@ -97,15 +132,21 @@ class Scenario(BaseModel):
     roles: list[Role]
     total_cost_rub: int
     max_bargaining_turns: int
+    max_dialogue_messages: int = MAX_DIALOGUE_MESSAGES
+    questionnaires: dict[str, Questionnaire] = Field(
+        default_factory=lambda: {key: Questionnaire.model_validate(value) for key, value in QUESTIONNAIRES.items()})
     role_settings_schema: dict[str, RoleSettingsSchema]
 
 
 class SavedRoleSettings(RoleSettings):
+    strategy: str | None = None
+    answers: dict[str, Answer] | None = Field(default=None, exclude_if=lambda value: value is None)
     spent_on_conditions_rub: int
 
 
 class SavedSettings(BaseModel):
     roles: list[SavedRoleSettings]
+    setup_mode: SetupMode | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 Phase = Literal["positions", "negotiation", "amendments", "preparing_protocol", "forecasting", "voting",
@@ -261,13 +302,52 @@ def settings_schema() -> dict:
 
 def scenario_contract() -> dict:
     return {**public_scenario(), "version": "1", "role_order": [role["player_id"] for role in ROLES],
-            "max_bargaining_turns": len(ROLES), "role_settings_schema": settings_schema()}
+            "max_bargaining_turns": len(ROLES), "role_settings_schema": settings_schema(),
+            "max_dialogue_messages": MAX_DIALOGUE_MESSAGES, "questionnaires": QUESTIONNAIRES}
 
 
 def default_settings() -> dict:
     return {"roles": [{"role_id": role_id, "control_mode": "ai", "pledged_rub": 0, "strategy": None,
                        "conditions": {lever["id"]: lever["default"] for lever in levers},
                        "spent_on_conditions_rub": 0} for role_id, levers in ROLE_LEVERS.items()]}
+
+
+def questionnaire_levers() -> list[dict]:
+    timeline = next(field for field in QUESTIONNAIRES["industrial_holding"]["fields"] if field["id"] == "timeline")
+    allowed_months = sorted(option["value"] for option in timeline["options"])
+    return [{**lever, "allowed": allowed_months} if lever["id"] == "timeline" else lever for lever in LEVERS]
+
+
+def spent_on_conditions(levers: list[dict], values: dict) -> int:
+    return sum(int(lever.get("cost", 0)) for lever in levers
+               if values[lever["id"]] is True
+               or (type(values[lever["id"]]) is int and values[lever["id"]] > 0))
+
+
+def validate_setup_settings(settings: SetupSettings) -> tuple[dict, list]:
+    if isinstance(settings, Settings):
+        return validate_settings(settings)
+    if isinstance(settings, AutomaticSettings):
+        answers = {role_id: data["defaults"] for role_id, data in QUESTIONNAIRES.items()}
+    else:
+        answers = settings.answers
+    answers, errors = questionnaire_answers(answers)
+    if errors:
+        return {}, errors
+
+    roles = []
+    for role in ROLES:
+        role_id = role["player_id"]
+        values = answers[role_id]
+        levers = ROLE_LEVERS[role_id]
+        # Conditional offers remain open until the owner confirms them during negotiation.
+        conditions = {lever["id"]: (values[lever["id"]] if lever["id"] not in CONDITIONAL_COMMITMENTS
+                                    else lever["default"]) for lever in levers}
+        roles.append({"role_id": role_id, "control_mode": "ai", "answers": values,
+                      "conditions": conditions, "pledged_rub": values.get("start_money", 0) * MILLION,
+                      "strategy": build_strategy(role_id, values, levers, role["budget_millions"]),
+                      "spent_on_conditions_rub": spent_on_conditions(levers, conditions)})
+    return {"setup_mode": settings.mode, "roles": roles}, []
 
 
 def validate_settings(settings: Settings) -> tuple[dict, list]:
@@ -293,8 +373,7 @@ def validate_settings(settings: Settings) -> tuple[dict, list]:
                 errors.append({"path": condition_path, "message": "Недопустимое значение условия."})
             else:
                 values[lever_id] = value
-        spent = sum(levers[key]["cost_rub"] for key, value in values.items()
-                    if value is True or (type(value) is int and value > 0))
+        spent = spent_on_conditions(ROLE_LEVERS[role.role_id], values)
         if role.pledged_rub > definition["pledged_rub_max"]:
             errors.append({"path": [*path, "pledged_rub"], "message": "Взнос превышает бюджет роли."})
         roles[role.role_id] = {**role.model_dump(), "conditions": values, "spent_on_conditions_rub": spent}

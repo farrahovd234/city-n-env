@@ -261,7 +261,29 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Settings"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Settings"
+                  },
+                  {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/ManualSettings"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AutomaticSettings"
+                      }
+                    ],
+                    "discriminator": {
+                      "propertyName": "mode",
+                      "mapping": {
+                        "manual": "#/components/schemas/ManualSettings",
+                        "automatic": "#/components/schemas/AutomaticSettings"
+                      }
+                    }
+                  }
+                ],
+                "title": "Settings"
               }
             }
           }
@@ -882,10 +904,122 @@
           }
         }
       }
+    },
+    "/api/v1/games/{game_id}/analysis": {
+      "post": {
+        "summary": "Analyze Game",
+        "operationId": "analyze_game_api_v1_games__game_id__analysis_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleAnalysis"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnalysisReference": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "quote": {
+            "type": "string",
+            "title": "Quote"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "quote"
+        ],
+        "title": "AnalysisReference"
+      },
+      "AnalysisRequest": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role_id"
+        ],
+        "title": "AnalysisRequest"
+      },
       "ApiError": {
         "properties": {
           "code": {
@@ -910,6 +1044,21 @@
           "message"
         ],
         "title": "ApiError"
+      },
+      "AutomaticSettings": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "automatic",
+            "title": "Mode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "AutomaticSettings"
       },
       "Ballot": {
         "properties": {
@@ -1526,6 +1675,42 @@
         ],
         "title": "InstructionAccepted"
       },
+      "ManualSettings": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "manual",
+            "title": "Mode"
+          },
+          "answers": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "answers"
+        ],
+        "title": "ManualSettings"
+      },
       "Message": {
         "properties": {
           "message_id": {
@@ -1751,6 +1936,111 @@
         ],
         "title": "ProtocolItem"
       },
+      "Questionnaire": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionnaireField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "defaults": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Defaults"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fields",
+          "defaults"
+        ],
+        "title": "Questionnaire"
+      },
+      "QuestionnaireField": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionnaireOption"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "hint",
+          "options",
+          "required"
+        ],
+        "title": "QuestionnaireField"
+      },
+      "QuestionnaireOption": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Value"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "QuestionnaireOption"
+      },
       "Role": {
         "properties": {
           "id": {
@@ -1773,6 +2063,56 @@
           "interest"
         ],
         "title": "Role"
+      },
+      "RoleAnalysis": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "paragraph": {
+            "type": "string",
+            "title": "Paragraph"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisReference"
+            },
+            "type": "array",
+            "title": "References"
+          },
+          "strategy_excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Excerpt"
+          },
+          "suggested_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Strategy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role_id",
+          "paragraph",
+          "references",
+          "strategy_excerpt",
+          "suggested_strategy"
+        ],
+        "title": "RoleAnalysis"
       },
       "RoleSettings": {
         "properties": {
@@ -1917,15 +2257,37 @@
           "strategy": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 6000,
-                "minLength": 1
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Strategy"
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
           },
           "spent_on_conditions_rub": {
             "type": "integer",
@@ -1951,6 +2313,21 @@
             },
             "type": "array",
             "title": "Roles"
+          },
+          "setup_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "automatic"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Mode"
           }
         },
         "type": "object",
@@ -1994,6 +2371,18 @@
           "max_bargaining_turns": {
             "type": "integer",
             "title": "Max Bargaining Turns"
+          },
+          "max_dialogue_messages": {
+            "type": "integer",
+            "title": "Max Dialogue Messages",
+            "default": 15
+          },
+          "questionnaires": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Questionnaire"
+            },
+            "type": "object",
+            "title": "Questionnaires"
           },
           "role_settings_schema": {
             "additionalProperties": {

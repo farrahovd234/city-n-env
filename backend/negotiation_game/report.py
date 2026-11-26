@@ -4,7 +4,7 @@
 изменяют состояние.
 """
 
-from .rules import is_owner
+from .rules import contribution_limit, is_owner
 
 
 def render_partial_report(history, state, total_cost, levers_config, status, error=None) -> str:
@@ -42,6 +42,13 @@ def render_profile(profile, state, speaker):
     base_budget = profile.get("money", 0)
     p_state = state.get("players", {}).get(speaker, {})
     spent_on_levers = p_state.get("spent_on_levers", 0.0)
+    limit = contribution_limit(p_state)
+    if limit is not None:
+        return "\n".join((
+            f"Базовый бюджет стороны: {format_money(base_budget)}",
+            f"Затраты на активированные обязательства: {format_money(spent_on_levers)}",
+            f"Доступно на взнос с учётом анкеты: {format_money(limit)}",
+        ))
     effective_budget = max(0.0, base_budget - spent_on_levers)
 
     lines = [
@@ -235,11 +242,20 @@ def render_voter_checklist(speaker: str, profile: dict, state: dict, levers_conf
     total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
     deficit = max(0.0, total_cost - total_c)
 
+    limit = contribution_limit(p_state)
+    financial_line = (f"Доля в управлении: {my_share:g}% (минимум: {attrs.get('min_share', 0):g}%)."
+                      if limit is None else f"Доступно на взнос с учётом анкеты: {format_money(limit)}.")
+    deficit_info = "✅ ПОЛНОСТЬЮ ЗАКРЫТ (100% средств обеспечено)"
+    if deficit > 100_000.0:
+        deficit_info = f"⚠️ ДЕФИЦИТ {format_money(deficit)}"
+        if limit is None:
+            deficit_info += " (Принятие с дефицитом допустимо большинством голосов, покрытие ляжет на резервные фонды)"
+
     lines = [
         f"🎯 ПЕРСОНАЛЬНЫЙ ЧЕК-ЛИСТ ДЛЯ СТОРОНЫ: @{speaker}",
         f"1. Твои затраты: взнос {format_money(my_contrib)} + спецобязательства {format_money(my_spent_levers)} = {format_money(my_contrib + my_spent_levers)} (из бюджета {format_money(base_budget)}).",
-        f"2. Твоя доля в управлении: {my_share:g}% (минимум: {attrs.get('min_share', 0):g}%).",
-        f"3. Статус бюджета проекта: {'⚠️ ДЕФИЦИТ ' + format_money(deficit) + ' (Принятие с дефицитом допустимо большинством голосов, покрытие ляжет на резервные фонды)' if deficit > 100_000.0 else '✅ ПОЛНОСТЬЮ ЗАКРЫТ (100% средств обеспечено)'}.",
+        f"2. {financial_line}",
+        f"3. Статус бюджета проекта: {deficit_info}.",
         "4. Статус ключевых нефинансовых пунктов (обрати внимание на утвержденные гарантии в Разделе 2 выше!):",
     ]
     current_levers = state.get("levers", {})
