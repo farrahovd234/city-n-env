@@ -5,8 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .catalog import (CONDITION_DEFAULTS, CONDITIONS, GAME_VOTES, GUILT, GUILT_LABELS, PLANT_MODE, PLANT_MODES,
-                      PLANT_REDUCED, ROLE_LABELS, TIMELINE, TIMELINE_MONTHS, YES_NO_CONDITIONS)
+from .catalog import (CONDITION_DEFAULTS, CONDITIONS, GAME_VOTES, GUILT, GUILT_LABELS, MIN_COVERAGE_TO_BUILD,
+                      PLANT_MODE, PLANT_MODES, PLANT_REDUCED, ROLE_LABELS, TIMELINE, TIMELINE_MONTHS, YES_NO_CONDITIONS)
+
+
+def meets_funding_threshold(paid: float, total: float) -> bool:
+    return paid / total >= MIN_COVERAGE_TO_BUILD
 
 
 @dataclass(frozen=True)
@@ -39,10 +43,18 @@ class Protocol:
         """Насколько взнос роли вместе с расходами на условия больше её бюджета."""
         return self.contributions.get(role, 0) + self.spent_on_conditions.get(role, 0) - self.budgets[role]
 
-    @property
-    def credit(self) -> list[str]:
-        """Роли, чей взнос вместе с расходами на условия больше бюджета: превышение покрыто кредитом."""
-        return [role for role in ROLE_LABELS if role in self.budgets and self.overspend(role) > 0]
+    def financial_load(self) -> list[dict[str, float | str | None]]:
+        rows = []
+        for role in ROLE_LABELS:
+            budget = self.budgets.get(role)
+            pledged = self.contributions.get(role, 0)
+            spending = self.spent_on_conditions.get(role, 0)
+            committed = pledged + spending
+            rows.append({"role_id": role, "budget_rub": budget, "pledged_rub": pledged,
+                         "spent_on_conditions_rub": spending, "committed_rub": committed,
+                         "budget_used_percent": round(100 * committed / budget, 2) if budget else None,
+                         "over_budget_rub": max(0, self.overspend(role)) if budget is not None else None})
+        return rows
 
 
 def valid(condition: str, value: Any) -> bool:

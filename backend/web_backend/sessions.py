@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from consequences_model.catalog import MODEL_VERSION
 from negotiation_game.engine import NegotiationEngine
 
 from .game_contract import (SPEECH_PHASES, default_settings, make_protocol, projection, scenario_contract, votes)
@@ -106,7 +107,14 @@ class GameSession:
                 actions.append("add_instruction")
         elif state["status"] == "failed" and (state["error"] or {}).get("code") == "RESULT_FAILED":
             actions = ["retry_result"]
-        return {**state, "available_actions": actions}
+        result = state["result"]
+        if (state["status"] == "completed" and result and result.get("model_version") != MODEL_VERSION
+                and self.record.get("result_input")):
+            try:
+                result = self._final_projection()
+            except Exception:
+                logger.warning("Не удалось пересчитать сохранённую партию %s", state["game_id"], exc_info=True)
+        return {**state, "result": result, "available_actions": actions}
 
     def save(self):
         self.store.save(self.record)
@@ -221,12 +229,14 @@ class GameSession:
         self.emit("game.failed")
         self.save()
 
-    async def calculate_result(self):
+    def _final_projection(self):
         raw = self.record["result_input"]
         basis = "accepted_protocol" if self.state["protocol_status"] == "accepted" else "no_agreement"
+        return projection(raw, self.state["protocol"]["version"], basis=basis, images=self.images)
+
+    async def calculate_result(self):
         await self.checkpoint()
-        result = await asyncio.to_thread(projection, raw, self.state["protocol"]["version"],
-                                          basis=basis, images=self.images)
+        result = await asyncio.to_thread(self._final_projection)
         await self.checkpoint()
         self.state.update(status="completed", phase=None, result=result)
         self.emit("game.completed")

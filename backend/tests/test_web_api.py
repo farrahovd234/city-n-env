@@ -5,6 +5,7 @@ import base64
 from functools import partial
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -25,6 +26,11 @@ from web_backend.scenario import build_rag, rag_corpus
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 CASES = json.loads((FIXTURES / "reference_games.json").read_text())["cases"]
+EXPECTED_CONSEQUENCES = {
+    "accepted_full": ("open_river", 270_000_000, 36),
+    "accepted_deficit": ("dolgostroy", 260_000_000, 60),
+    "rejected_with_abstentions": ("stagnation", 0, None),
+}
 PAUSE = asyncio.sleep
 
 
@@ -43,6 +49,15 @@ def fixture_model(provider, role_id, temperature):
 
 
 class WebGameAPITests(unittest.IsolatedAsyncioTestCase):
+    async def test_illustrations_are_enabled_by_default(self):
+        with patch.dict(os.environ):
+            os.environ.pop("CITY_N_IMAGES", None)
+            app = create_app(embedding_base_url="")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://api.test") as api:
+            response = await api.get("/api/v1/illustrations/open_river.png")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+
     async def run_case(self, case_name, *, images=True):
         case = CASES[case_name]
         inputs = case["inputs"]
@@ -91,9 +106,19 @@ class WebGameAPITests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(result["status"], "completed", result)
                     self.assertEqual(markers_seen, {"city_residents"})
                     data = result["result"]
+                    outcome_id, executed_rub, commissioning_month = EXPECTED_CONSEQUENCES[case_name]
+                    forecast_data = data["consequences"]
+                    self.assertEqual(forecast_data["outcome_id"], outcome_id)
+                    self.assertEqual(forecast_data["executed_rub"], executed_rub)
+                    self.assertEqual(forecast_data["commissioning_month"], commissioning_month)
+                    self.assertEqual(forecast_data["model_version"], 3)
+                    self.assertEqual(len(forecast_data["herald_text"].splitlines()), 1)
                     if images:
-                        image = await api.get(data["consequences"]["image_url"])
+                        self.assertEqual(forecast_data["image_url"], f"/api/v1/illustrations/{outcome_id}.png")
+                        image = await api.get(forecast_data["image_url"])
                         self.assertEqual(image.status_code, 200)
+                        asset = FIXTURES.parents[1] / "assets" / "consequences" / f"{outcome_id}.png"
+                        self.assertEqual(image.content, asset.read_bytes())
                         image_sha = hashlib.sha256(image.content).hexdigest()
                     else:
                         self.assertIsNone(data["consequences"]["image_url"])
@@ -106,7 +131,11 @@ class WebGameAPITests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(any(row.get("skip_reason") == "no_allowed_sources" for row in raw["rag_retrievals"]))
                     actual = snapshot(raw, forecast(raw), data["negotiation_report_markdown"],
                                       data["consequences"]["herald_text"], image_sha)
-                    self.assertEqual(json.loads(json.dumps(actual)), case["expected"])
+                    # The saved migration reference still verifies the entire negotiation.
+                    consequence_fields = {"forecast", "newspaper", "illustration_sha256"}
+                    negotiation = {key: value for key, value in actual.items() if key not in consequence_fields}
+                    expected = {key: value for key, value in case["expected"].items() if key not in consequence_fields}
+                    self.assertEqual(negotiation, expected)
                     self.assertEqual(data["pledged_rub"], raw["total_money"])
                     self.assertEqual(data["deficit_rub"], raw["deficit"])
                     self.assertEqual(data["accepted"], raw["consensus_reached"])
@@ -115,10 +144,7 @@ class WebGameAPITests(unittest.IsolatedAsyncioTestCase):
                     self.assertCountEqual([v["value"] for v in data["votes"]], expected_votes)
                     self.assertEqual({c["id"]: c["value"] for c in data["conditions"]}, actual["conditions"])
                     self.assertEqual(len(data["transcript"]), len(actual["turns"]))
-                    forecast_data = data["consequences"]
-                    self.assertEqual(forecast_data["outcome_id"], actual["forecast"]["outcome"]["id"])
-                    self.assertEqual(forecast_data["executed_rub"], actual["forecast"]["paid"])
-                    self.assertEqual(forecast_data["commissioning_month"], actual["forecast"]["commissioning_month"])
+                    self.assertEqual(forecast_data["financial_load"][0]["over_budget_rub"], 20_000_000)
                     self.assertEqual(forecast_data["report_markdown"], actual["forecast"]["report"])
                     self.assertEqual((await api.post(response.headers["location"] + "/cancel")).status_code, 409)
                     return data
