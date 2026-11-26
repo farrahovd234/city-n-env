@@ -684,12 +684,14 @@ class NegotiationEngine:
             "demands": [],
         }
         for role in getattr(self, "initial_roles", []):
+            name = names_by_id[role["role_id"]]
+            if "contribution_cap_rub" in role:
+                state["players"][name]["contribution_cap"] = role["contribution_cap_rub"]
             answer = PlayerTurn(speech="Начальные настройки", vote=None,
                                 own_contribution_millions=role["pledged_rub"] / 1_000_000,
                                 own_levers=role["conditions"], demands=[], responses=[],
                                 withdrawn_demands=[], addressed_to=None)
-            state, _ = prepare_player_turn(answer, names_by_id[role["role_id"]],
-                                           state, levers_config, total_cost)
+            state, _ = prepare_player_turn(answer, name, state, levers_config, total_cost)
 
         return players, names, state, settings_data
 
@@ -1005,17 +1007,22 @@ class NegotiationEngine:
             )
 
             deficit_info = f"Текущий статус бюджета проекта: {'⚠️ ДЕФИЦИТ ' + format_money(deficit) if deficit > 100_000.0 else '✅ ПОЛНОСТЬЮ ЗАКРЫТ'}. "
+            questionnaire_vote = "contribution_cap" in state["players"][speaker]
+            voting_rule = ("Следуй правилам финального голосования из своей стратегии. "
+                           if questionnaire_vote else
+                           "Прими взвешенное решение: если компромисс приемлем, допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ. ")
             system_message = (
                 "ИДЕТ ЭТАП 3: ФИНАЛЬНОЕ ПОИМЕННОЕ ГОЛОСОВАНИЕ ПО ПРОЕКТУ СОГЛАШЕНИЯ. "
                 "Оцени зафиксированный Проект Соглашения строго с точки зрения интересов и красных линий своей роли. "
                 f"{deficit_info}"
-                "Прими взвешенное решение: если компромисс приемлем, допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ. "
+                f"{voting_rule}"
                 "Не вспоминай эмоциональные споры из диалога — голосуй исключительно по тексту Соглашения и своему чек-листу! "
                 "Верни структурированный голос в vote, обоснование — в speech. "
                 + (f"Соглашение принимается единогласно ({num_players} из {num_players}). " if session is not None else
                    f"Соглашение принимается большинством голосов (не менее {majority_threshold} из {num_players}). ")
-                + "Дефицит бюджета (при наличии) фиксируется в протоколе для покрытия из резервных фондов."
             )
+            if not questionnaire_vote:
+                system_message += "Дефицит бюджета (при наличии) фиксируется в протоколе для покрытия из резервных фондов."
 
             if session is not None:
                 prompt += "\n\nПрогноз по протоколу:\n" + session.forecast_context()
