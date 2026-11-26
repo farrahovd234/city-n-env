@@ -834,9 +834,11 @@
             const caption = `Перейти к реплике ${source.number}`;
             const open = element('button', null, 'source-link');
             open.type = 'button';
+            const quote = element('span', reference.quote, 'source-quote');
+            quote.id = `analysis-quote-${source.number}`;
             open.setAttribute('aria-label', caption);
-            open.append(element('span', reference.quote, 'source-quote'),
-              element('span', caption, 'source-caption'));
+            open.setAttribute('aria-describedby', quote.id);
+            open.append(quote, element('span', caption, 'source-caption'));
             open.onclick = () => {
               $('journal-archive').open = true;
               source.item.focus();

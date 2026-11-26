@@ -283,7 +283,7 @@ main.shell { padding-bottom: clamp(48px, 7vw, 92px); }
 .settings-layout { grid-template-columns: minmax(220px, .78fr) minmax(0, 2.22fr); }
 .record-layout, .result-layout { grid-template-columns: minmax(0, 2fr) minmax(250px, 1fr); }
 .settings-main, .record-main, .record-sidebar { min-width: 0; }
-.settings-sidebar { align-self: start; }
+.settings-sidebar { position: sticky; top: 18px; align-self: start; }
 
 .sidebar-heading {
   display: flex;
@@ -327,8 +327,10 @@ main.shell { padding-bottom: clamp(48px, 7vw, 92px); }
 }
 .role-link:hover { background: var(--green-pale); }
 .role-link[aria-current] { background: var(--green); color: var(--sheet); font-weight: 700; }
+.role-link > span:nth-child(2) { overflow-wrap: anywhere; }
 .role-number { color: var(--green); font: .76rem var(--mono); }
-.role-link[aria-current] .role-number { color: #d2e3d8; }
+.role-link[aria-current] .role-link > span:nth-child(2) { overflow-wrap: anywhere; }
+.role-number { color: #d2e3d8; }
 .role-check { color: inherit; font-weight: 700; }
 
 .notice {
@@ -624,6 +626,7 @@ input[type="checkbox"] { justify-self: start; width: 22px; height: 22px; accent-
   .page-heading { flex-direction: column; align-items: start; gap: 14px; padding-bottom: 16px; }
   .debate-actions { justify-content: start; }
   .settings-layout { gap: 16px; }
+  .settings-sidebar { position: static; }
   .roles-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 7px; }
   .role-link { min-height: 44px; padding-inline: 6px; gap: 4px; grid-template-columns: 21px minmax(0, 1fr) 13px; }
   .analysis { gap: 15px; }
@@ -638,5 +641,7 @@ input[type="checkbox"] { justify-self: start; width: 22px; height: 22px; accent-
   .brand small { font-size: .61rem; }
   .rules-link, .game-stages li { font-size: .73rem; }
   .button { padding-inline: 12px; }
+  .role-number { display: none; }
+  .role-link { grid-template-columns: minmax(0, 1fr) 13px; }
   .form-actions > * { flex: 1 0 0; }
 }
