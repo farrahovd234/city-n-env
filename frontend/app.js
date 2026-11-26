@@ -852,8 +852,19 @@
         }
         content.append(quotes);
       }
-      if (report.strategy_excerpt) content.append(element('h4', 'Из исходной стратегии'),
-        element('blockquote', report.strategy_excerpt));
+      if (report.strategy_excerpt) {
+        content.append(element('h4', 'Из исходной стратегии'), element('blockquote', report.strategy_excerpt));
+        const strategy = this.game.settings.roles.find((role) => role.role_id === roleId)?.strategy;
+        const start = strategy?.indexOf(report.strategy_excerpt) ?? -1;
+        if (start !== -1) {
+          const prompt = element('pre');
+          prompt.append(strategy.slice(0, start), element('mark', report.strategy_excerpt),
+            strategy.slice(start + report.strategy_excerpt.length));
+          const disclosure = element('details', null, 'strategy-source');
+          disclosure.append(element('summary', 'Открыть исходную стратегию'), prompt);
+          content.append(disclosure);
+        }
+      }
       if (report.suggested_strategy) content.append(element('h4', 'Что изменить'),
         element('p', report.suggested_strategy));
     }
