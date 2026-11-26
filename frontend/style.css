@@ -550,26 +550,31 @@ input[type="checkbox"] { justify-self: start; width: 22px; height: 22px; accent-
 .analysis-content p, .analysis-content blockquote { overflow-wrap: anywhere; }
 
 .analysis-quotes { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.analysis-content blockquote {
+.analysis-content blockquote, .source-link {
   padding: 10px 12px;
   border-left: 2px solid var(--green);
   background: var(--sheet);
   white-space: pre-wrap;
 }
 .source-link {
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  gap: 3px;
+  width: 100%;
   min-height: 44px;
-  padding: 4px 0;
   border: 0;
-  background: transparent;
+  border-left: 2px solid var(--green);
+  color: var(--ink);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.source-link:hover { background: var(--paper); }
+.source-caption {
   color: var(--green-dark);
   font-size: .88rem;
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: .22em;
 }
-.source-link:hover { text-decoration-thickness: 2px; }
 
 .journal-archive {
   margin-top: 20px;

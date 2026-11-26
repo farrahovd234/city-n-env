@@ -829,18 +829,22 @@
         const quotes = element('ul', null, 'analysis-quotes');
         for (const reference of report.references) {
           const row = element('li');
-          const quote = element('blockquote', reference.quote);
           const source = this.messages.get(reference.message_id);
-          row.append(quote);
           if (source) {
-            const open = element('button', `Перейти к реплике ${source.number}`, 'source-link');
+            const caption = `Перейти к реплике ${source.number}`;
+            const open = element('button', null, 'source-link');
             open.type = 'button';
+            open.setAttribute('aria-label', caption);
+            open.append(element('span', reference.quote, 'source-quote'),
+              element('span', caption, 'source-caption'));
             open.onclick = () => {
               $('journal-archive').open = true;
               source.item.focus();
               source.item.scrollIntoView({ block: 'center' });
             };
             row.append(open);
+          } else {
+            row.append(element('blockquote', reference.quote));
           }
           quotes.append(row);
         }
