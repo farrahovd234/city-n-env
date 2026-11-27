@@ -200,11 +200,15 @@ class AnalysisAPITests(unittest.IsolatedAsyncioTestCase):
         draft = await self.analyze()
         self.assertEqual(draft.status_code, 409, draft.text)
         self.assertEqual(draft.json()["code"], "ANALYSIS_UNAVAILABLE")
+        review_path = f"{self.path}/analysis/questionnaire/{self.role_id}"
+        self.assertEqual((await self.api.get(review_path)).status_code, 409)
         await self.complete_game()
+        self.assertEqual((await self.api.get(review_path)).json()["code"], "QUESTIONNAIRE_UNAVAILABLE")
         async with httpx.AsyncClient(transport=self.transport, base_url="http://city.test") as stranger:
             denied = await self.analyze(client=stranger)
             self.assertEqual(denied.status_code, 404, denied.text)
             self.assertEqual(denied.json()["code"], "GAME_NOT_FOUND")
+            self.assertEqual((await stranger.get(review_path)).status_code, 404)
         unknown_role = await self.analyze(role_id="unknown_role")
         self.assertEqual(unknown_role.status_code, 404, unknown_role.text)
         wrong_target = await self.analyze(message_ids=["2"])

@@ -23,14 +23,23 @@
   const createKey = 'city_n_create_key';
   const readableValue = (value) => typeof value === 'number' ? formatNumber.format(value) : value;
   const guiltLabels = new Map([
-    ['shared', 'Обоюдная вина города и холдинга'],
-    ['holding', 'Вина холдинга'],
-    ['city', 'Вина города'],
+    ['shared', 'Город и холдинг'],
+    ['holding', 'Холдинг'],
+    ['city', 'Город'],
   ]);
 
   function conditionValue(id, value) {
     if (id === 'guilt' && guiltLabels.has(value)) return guiltLabels.get(value);
     return typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : readableValue(value);
+  }
+
+  function publicText(text) {
+    const votes = { for: 'голос «за»', against: 'голос «против»', abstain: 'воздержание', none: 'без голосования' };
+    return text
+      .replace(/[ \t]*\(\s*vote\s*[:=]\s*["'«]?(?:for|against|abstain|none)\b["'»]?\s*\)/gi, '')
+      .replace(/\bvote\s*[:=]\s*["'«]?(for|against|abstain|none)\b["'»]?/gi,
+        (_code, vote) => votes[vote.toLowerCase()])
+      .replace(/(?:\bguilt\s*[:=]\s*)?["'«]?\bshared\b["'»]?/gi, 'разделённая ответственность');
   }
 
   function mergeAnalysis(previous, report) {
@@ -105,6 +114,7 @@
       this.rounds = new Map();
       this.analysisResults = new Map();
       this.analysisFailures = new Set();
+      this.questionnaireReviews = new Map();
       this.pollTimer = null;
       this.pollRefresh = false;
       this.busy = false;
@@ -243,6 +253,7 @@
       this.rounds.clear();
       this.analysisResults.clear();
       this.analysisFailures.clear();
+      this.questionnaireReviews.clear();
       this.analysisRequest = null;
       $('analysis-role').replaceChildren();
       $('analysis-summary').replaceChildren();
@@ -281,6 +292,7 @@
       } else if (this.game) {
         const stage = this.gameScreen();
         if (location === 'assistant' && this.game.status === 'completed') this.screen('assistant');
+        else if (location === 'debate' && this.game.status === 'completed') this.screen('debate');
         else if (location === 'journal-archive' && stage === 'final' && this.messages.size) this.openArchive();
         else this.navigate(stage);
       } else if (location === 'settings' && !this.restoring) {
@@ -317,6 +329,13 @@
       this.currentScreen = name;
       this.currentPage = page;
       if (name !== 'debate') this.finishSpeechReveal();
+      const journal = $('journal-content');
+      if (name === 'debate' && journal.parentElement !== $('live-journal')) {
+        $('live-journal').prepend(journal);
+      } else if (name === 'final' && journal.parentElement !== $('journal-archive')) {
+        $('debate-feed').querySelectorAll('.speech-new').forEach((item) => item.classList.remove('speech-new'));
+        $('journal-archive').append(journal);
+      }
       if (name !== 'settings' && $('auto-settings-dialog').open) $('auto-settings-dialog').close('cancel');
       for (const view of document.querySelectorAll('.screen-view')) view.hidden = view.dataset.screenView !== name;
       const stage = this.game ? this.gameScreen() : 'settings';
@@ -327,7 +346,7 @@
       for (const link of document.querySelectorAll('.site-nav a')) {
         const destination = link.dataset.page;
         link.hidden = !available.has(destination);
-        if (destination === 'debate') link.href = hasArchive ? '#journal-archive' : '#debate';
+        if (destination === 'debate') link.href = hasArchive && name !== 'debate' ? '#journal-archive' : '#debate';
         if (destination === page) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       }
@@ -365,7 +384,7 @@
       for (const message of snapshot.messages) this.append(message);
 
       if (snapshot.status === 'draft' && (!previous || !this.draft)) this.initSettings();
-      if (snapshot.status === 'running') this.renderDebate();
+      if (snapshot.status === 'running' || snapshot.status === 'completed') this.renderDebate();
       if (['completed', 'cancelled', 'failed'].includes(snapshot.status)) this.renderResult();
       this.route();
       if (recover && snapshot.status === 'running') this.schedulePoll();
@@ -912,7 +931,7 @@
       const copy = element('div', null, 'speech-copy');
       const heading = element('div', null, 'speech-heading');
       heading.append(element('h3', this.roleName(message.role_id), 'speech-role'), meta);
-      const text = element('p', message.content, 'speech-text');
+      const text = element('p', publicText(message.content), 'speech-text');
       copy.append(heading, text);
       item.append(portrait(message.role_id), copy);
       entry.append(item);
@@ -986,10 +1005,11 @@
     renderDebate() {
       const game = this.game;
       const actions = game.available_actions;
-      $('live-journal').prepend($('journal-content'));
+      const completed = game.status === 'completed';
       this.renderJournalCount();
       const pause = game.pause_state === 'requested' ? ' · Пауза запрошена' : game.pause_state === 'paused' ? ' · Пауза' : '';
-      $('phase-title').textContent = (phaseLabels[game.phase] || 'Подготовка участников') + pause;
+      $('phase-title').textContent = completed ? 'Заседание завершено' : (phaseLabels[game.phase] || 'Подготовка участников') + pause;
+      $('newspaper-action').hidden = !completed || !game.result;
       const roster = $('debate-roles');
       if (roster.dataset.gameId !== game.game_id) {
         roster.dataset.gameId = game.game_id;
@@ -1028,7 +1048,7 @@
       for (const [index, phase] of phases.entries()) {
         const item = element('li', phaseLabels[phase]);
         if (phase === game.phase) item.setAttribute('aria-current', 'step');
-        if (index < phases.indexOf(game.phase)) item.className = 'phase-passed';
+        if (completed || index < phases.indexOf(game.phase)) item.className = 'phase-passed';
         agenda.append(item);
       }
       this.renderProtocol($('protocol-panel'));
@@ -1080,7 +1100,7 @@
       for (const item of protocol.items) {
         const value = conditionValue(item.item_id, item.value);
         const group = element('div');
-        group.append(element('dt', item.title));
+        group.append(element('dt', item.item_id === 'guilt' ? 'Ответственность за аварию' : item.title));
         if (value != null) group.append(element('dd', value));
         if (item.funding.length) {
           const funding = element('dl', null, 'funding-list');
@@ -1138,7 +1158,6 @@
     }
 
     renderResult() {
-      this.finishSpeechReveal();
       const game = this.game;
       const result = game.result;
       $('result-title').textContent = { completed: 'Итоги партии', cancelled: 'Партия отменена', failed: 'Партия прервана' }[game.status];
@@ -1171,10 +1190,7 @@
         $('final-indicators').replaceChildren();
         this.renderIndicators($('final-indicators'), result, 'Итоговые показатели');
       }
-      const archive = $('journal-archive');
-      archive.hidden = this.messages.size === 0;
-      $('debate-feed').querySelectorAll('.speech-new').forEach((item) => item.classList.remove('speech-new'));
-      archive.append($('journal-content'));
+      $('journal-archive').hidden = this.messages.size === 0;
       this.renderJournalCount();
       $('analysis-panel').hidden = game.status !== 'completed';
       $('open-assistant').hidden = game.status !== 'completed';
@@ -1196,8 +1212,9 @@
     }
 
     resumeAnalysis() {
-      this.showAnalysis();
       const roleId = $('analysis-role').value;
+      if (this.questionnaireReviews.get(roleId) === false) this.questionnaireReviews.delete(roleId);
+      this.showAnalysis();
       try { sessionStorage.setItem(analysisRoleKey(this.game.game_id), roleId); }
       catch { /* Analysis can run with storage disabled. */ }
       if (this.analysisResults.get(roleId)?.missing_message_ids?.length) void this.requestAnalysis();
@@ -1262,6 +1279,9 @@
       const submit = $('request-analysis');
       const complete = Boolean(report && !report.missing_message_ids?.length);
       const ready = complete && !pending;
+      const answers = this.game.settings.roles.find((role) => role.role_id === roleId)?.answers;
+      const canReviewQuestionnaire = answers && Object.keys(answers).length > 0;
+      const questionnaireOnly = canReviewQuestionnaire && (failed || !messages.length);
       submit.textContent = !messages.length ? 'Нет реплик для разбора'
         : pending ? 'Готовим разбор' : complete ? 'Разбор готов'
         : failed ? 'Разбор завершён' : 'Разобрать переговоры';
@@ -1292,9 +1312,12 @@
       const content = $('analysis-result');
       const sourceOpen = content.dataset.roleId === roleId && content.querySelector('.strategy-source')?.open;
       content.dataset.roleId = roleId;
-      content.hidden = !ready;
+      content.hidden = !ready && !questionnaireOnly;
       content.replaceChildren();
-      if (!ready) return;
+      if (!ready) {
+        if (questionnaireOnly) content.append(this.analysisQuestionnaire(roleId));
+        return;
+      }
 
       const structured = Boolean(report.findings?.length);
       const title = element('h2', 'Разбор реплик', 'analysis-section-title');
@@ -1314,13 +1337,14 @@
         body.append(findings);
       } else {
         const legacy = element('section', null, 'analysis-card');
-        legacy.append(element('h3', 'Разбор хода'), element('p', report.observation || report.paragraph));
+        legacy.append(element('h3', 'Разбор хода'), element('p', publicText(report.observation || report.paragraph)));
         this.appendAnalysisEvidence(legacy, report.references, Boolean(report.observation));
         body.append(legacy);
       }
-      if (report.suggested_strategy && report.strategy_excerpt) {
-        body.classList.add('analysis-with-strategy');
-        body.prepend(this.analysisStrategy(report, roleId, sourceOpen));
+      if (canReviewQuestionnaire) {
+        body.append(this.analysisQuestionnaire(roleId));
+      } else if (report.suggested_strategy && report.strategy_excerpt) {
+        body.append(this.analysisStrategy(report, roleId, sourceOpen));
       }
       content.append(body);
     }
@@ -1333,12 +1357,12 @@
       const verdictLabel = { keep: 'Удачный ход', improve: 'Можно улучшить', neutral: 'Наблюдение' };
       heading.append(element('h3', move ? `Реплика ${move.number}` : 'Ход стороны'),
         element('span', verdictLabel[finding.verdict], 'finding-verdict'));
-      card.append(heading, element('p', finding.observation, 'finding-observation'));
+      card.append(heading, element('p', publicText(finding.observation), 'finding-observation'));
       this.appendAnalysisEvidence(card, finding.references, true);
       if (finding.next_reply) {
         const alternative = element('div', null, 'finding-alternative');
         const label = finding.verdict === 'improve' ? 'Что можно было сказать' : 'Как продолжить';
-        alternative.append(element('h4', label), element('p', finding.next_reply));
+        alternative.append(element('h4', label), element('p', publicText(finding.next_reply)));
         card.append(alternative);
       }
       return card;
@@ -1359,9 +1383,9 @@
           button.setAttribute('aria-label', `${caption}. ${meta}`);
           button.append(element('span', meta, 'source-meta'));
           if (showQuote) {
-            const quote = element('span', reference.quote, 'source-quote');
-            button.setAttribute('aria-description', reference.quote);
-            button.append(quote);
+            const quote = publicText(reference.quote);
+            button.setAttribute('aria-description', quote);
+            button.append(element('span', quote, 'source-quote'));
           }
           button.append(element('span', caption, 'source-caption'));
           button.onclick = () => {
@@ -1370,31 +1394,75 @@
           };
           row.append(button);
         } else {
-          row.append(element('blockquote', reference.quote));
+          row.append(element('blockquote', publicText(reference.quote)));
         }
         list.append(row);
       }
       if (list.childElementCount) container.append(list);
     }
 
+    async loadQuestionnaireReview(roleId) {
+      const gameId = this.game.game_id;
+      this.questionnaireReviews.set(roleId, null);
+      const review = await api(`/${gameId}/analysis/questionnaire/${encodeURIComponent(roleId)}`).catch(() => false);
+      if (this.game?.game_id !== gameId) return;
+      this.questionnaireReviews.set(roleId, review);
+      if (this.currentScreen === 'assistant' && $('analysis-role').value === roleId) this.showAnalysis();
+    }
+
+    analysisQuestionnaire(roleId) {
+      const section = element('section', null, 'analysis-card analysis-strategy');
+      section.setAttribute('aria-labelledby', 'questionnaire-review-title');
+      const title = element('h3', 'Что изменить в анкете');
+      title.id = 'questionnaire-review-title';
+      section.append(title);
+
+      const review = this.questionnaireReviews.get(roleId);
+      if (review === undefined) void this.loadQuestionnaireReview(roleId);
+      if (!review) {
+        const status = element('p', review === false ? 'Не удалось загрузить рекомендации по анкете.'
+          : 'Подбираем ответы для следующей партии…', 'analysis-coverage');
+        status.setAttribute('role', 'status');
+        section.append(status);
+        return section;
+      }
+      if (review.context) section.append(element('p', review.context, 'analysis-coverage'));
+      const recommendations = element('div', null, 'questionnaire-review');
+      for (const item of review.items) {
+        const entry = element('div', null, 'questionnaire-advice');
+        entry.append(element('h4', item.question));
+        const current = element('div', null, 'strategy-original');
+        current.append(element('dt', 'Выбранный ответ'), element('dd', item.chosen));
+        const next = element('div', null, 'strategy-proposal');
+        next.append(element('dt', item.chosen === item.suggested ? 'Сохранить этот ответ' : 'В следующей партии'),
+          element('dd', item.suggested));
+        const answers = element('dl');
+        answers.append(current, next);
+        entry.append(answers, element('p', item.reason));
+        recommendations.append(entry);
+      }
+      section.append(recommendations);
+      return section;
+    }
+
     analysisStrategy(report, roleId, sourceOpen) {
-      const card = element('aside', null, 'analysis-card analysis-strategy');
+      const card = element('section', null, 'analysis-card analysis-strategy');
       card.setAttribute('aria-labelledby', 'strategy-adjustment-title');
       const title = element('h3', 'Правка стратегии');
       title.id = 'strategy-adjustment-title';
+      const excerpt = publicText(report.strategy_excerpt);
       const original = element('div', null, 'strategy-original');
-      original.append(element('dt', 'В сыгранной партии'), element('dd', report.strategy_excerpt));
+      original.append(element('dt', 'В сыгранной партии'), element('dd', excerpt));
       const proposal = element('div', null, 'strategy-proposal');
-      proposal.append(element('dt', 'В следующей партии'), element('dd', report.suggested_strategy));
+      proposal.append(element('dt', 'В следующей партии'), element('dd', publicText(report.suggested_strategy)));
       const changes = element('dl');
       changes.append(original, proposal);
       card.append(title, changes);
-      const strategy = this.game.settings.roles.find((role) => role.role_id === roleId)?.strategy;
-      const start = strategy?.indexOf(report.strategy_excerpt) ?? -1;
+      const strategy = publicText(this.game.settings.roles.find((role) => role.role_id === roleId)?.strategy ?? '');
+      const start = excerpt ? strategy.indexOf(excerpt) : -1;
       if (start !== -1) {
         const prompt = element('pre');
-        prompt.append(strategy.slice(0, start), element('mark', report.strategy_excerpt),
-          strategy.slice(start + report.strategy_excerpt.length));
+        prompt.append(strategy.slice(0, start), element('mark', excerpt), strategy.slice(start + excerpt.length));
         const disclosure = element('details', null, 'strategy-source');
         disclosure.open = Boolean(sourceOpen);
         disclosure.append(element('summary', 'Открыть исходную стратегию'), prompt);

@@ -91,11 +91,17 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
         model_votes = []
         repeated_city_position = ("Заморозка тарифов — наше условие, но гарантию питьевой воды не включаем, "
                                   "чтобы сохранить все 30 млн на реконструкцию.")
+        city_clarification = "Промкомплекс, какой вклад вы готовы записать в протокол?"
 
         async def reply(request):
             body = json.loads(request.content)
             role = body["model"]
             provider_prompts.setdefault(role, []).extend(message["content"] for message in body["messages"])
+            if "tools" not in body:
+                content = city_clarification if role == "city_administration" else "Мы выделим 90 млн ₽."
+                return httpx.Response(200, json={"id": "clarification", "object": "chat.completion", "created": 0,
+                    "model": role, "choices": [{"index": 0, "finish_reason": "stop",
+                                                "message": {"role": "assistant", "content": content}}]})
             parameters = body["tools"][0]["function"]["parameters"]
             properties = parameters["properties"]
             voting = properties["vote"]["enum"] != ["none"]
@@ -115,7 +121,8 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
             bargaining = any("ЭТАП 2 ИЗ 3" in message["content"] for message in body["messages"])
             correction = any("Ответ не применён." in message["content"] for message in body["messages"])
             speech = ("Регион: стартовая позиция и требования. Предлагаю разделить ответственность (shared) "
-                      "и предоставить налоговые льготы (tax_relief: true)." if role == "regional_government"
+                      "и предоставить налоговые льготы (tax_relief: true). Признание вины — только shared."
+                      if role == "regional_government"
                       else f"Позиция стороны {role}.")
             if bargaining and role in {"city_administration", "regional_government"} and not correction:
                 speech = repeated_city_position
@@ -124,6 +131,8 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                               ] if condition and not voting else []
             if role == "environmental_ngo":
                 own_conditions = own_conditions * 2
+            if role == "city_residents" and bargaining and not voting:
+                own_conditions = [{"lever_id": "water_supply", "value_json": "true"}]
             contribution = CONTRIBUTIONS[role] - deficit_millions if role == "industrial_holding" else CONTRIBUTIONS[role]
             return tool_reply({
                 "speech": speech,
@@ -217,10 +226,13 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual([row["phase"] for row in messages], [phase for phase in ROUNDS for _ in range(5)])
                     self.assertEqual([row["role_id"] for row in messages], list(CONTRIBUTIONS) * 3)
                     self.assertEqual(len({row["message_id"] for row in messages}), 15)
-                    self.assertIn("Новых обязательств в этом ходе нет", messages[0]["content"])
+                    self.assertEqual(messages[0]["content"], city_clarification)
+                    self.assertEqual(messages[8]["content"],
+                                     "Администрация, как вы предлагаете обеспечить жителей питьевой водой до запуска очистных?")
                     self.assertFalse(any(row.get("skipped") for row in messages))
                     self.assertEqual(messages[2]["content"],
-                                     "Предлагаю разделить ответственность и предоставить налоговые льготы.")
+                                     "Предлагаю разделить ответственность и предоставить налоговые льготы. "
+                                     "Признание вины — только разделённая ответственность.")
                     self.assertEqual(messages[5]["content"], repeated_city_position)
                     self.assertEqual(messages[7]["content"], messages[2]["content"])
                     accepted = not deficit_millions
@@ -233,6 +245,26 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                                   for role in CONTRIBUTIONS],
                     })
                     self.assertEqual(final["forecast"]["basis"], "proposed_protocol")
+                    review_path = f"{path}/analysis/questionnaire"
+                    response = await api.get(f"{review_path}/city_residents")
+                    self.assertEqual(response.status_code, 200, response.text)
+                    review = response.json()
+                    self.assertIn("270 млн", review["context"])
+                    if deficit_millions:
+                        self.assertIn("50 000", review["context"])
+                    option = review["items"][0]
+                    self.assertEqual(option["field_id"], "water_supply")
+                    if mode == "manual":
+                        self.assertNotEqual(option["chosen"], option["suggested"])
+                    else:
+                        self.assertEqual(option["chosen"], option["suggested"])
+                    for configured_role in configured["settings"]["roles"]:
+                        role_id = configured_role["role_id"]
+                        advice = await api.get(f"{review_path}/{role_id}")
+                        self.assertEqual(advice.status_code, 200, advice.text)
+                        self.assertTrue(advice.json()["items"])
+                        self.assertTrue(all(item["field_id"] in configured_role["answers"]
+                                            for item in advice.json()["items"]))
                     if accepted:
                         self.assertEqual(final["result"]["basis"], "accepted_protocol")
                         self.assertEqual(final["result"]["outcome_title"], "Открытая река")

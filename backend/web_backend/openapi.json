@@ -905,6 +905,74 @@
         }
       }
     },
+    "/api/v1/games/{game_id}/analysis/questionnaire/{role_id}": {
+      "get": {
+        "summary": "Analyze Questionnaire",
+        "operationId": "analyze_questionnaire_api_v1_games__game_id__analysis_questionnaire__role_id__get",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "role_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionnaireReview"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/games/{game_id}/analysis": {
       "post": {
         "summary": "Analyze Game",
@@ -1039,6 +1107,39 @@
           "role_id"
         ],
         "title": "AnalysisRequest"
+      },
+      "AnswerAdvice": {
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "title": "Field Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "chosen": {
+            "type": "string",
+            "title": "Chosen"
+          },
+          "suggested": {
+            "type": "string",
+            "title": "Suggested"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field_id",
+          "question",
+          "chosen",
+          "suggested",
+          "reason"
+        ],
+        "title": "AnswerAdvice"
       },
       "ApiError": {
         "properties": {
@@ -2137,6 +2238,27 @@
           "unit"
         ],
         "title": "QuestionnaireRange"
+      },
+      "QuestionnaireReview": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerAdvice"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "context",
+          "items"
+        ],
+        "title": "QuestionnaireReview"
       },
       "Role": {
         "properties": {

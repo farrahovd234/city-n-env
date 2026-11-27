@@ -1,0 +1,9 @@
+services:
+  game:
+    depends_on: !reset null
+    environment:
+      CITY_N_LLM_BASE_URL: ${CITY_N_LLM_BASE_URL:-}
+      CITY_N_LLM_MODEL: ${CITY_N_LLM_MODEL:-}
+      CITY_N_LLM_API_KEY: ${CITY_N_LLM_API_KEY:-}
+  gpt2giga:
+    profiles: [gigachat]

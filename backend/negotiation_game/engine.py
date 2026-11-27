@@ -5,11 +5,13 @@ import asyncio
 import copy
 import json
 import random
+import re
 import zlib
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 from langchain_core.exceptions import OutputParserException
+from openai import APIError
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -40,6 +42,13 @@ RAG_ROLE_BY_PLAYER_ID = {
     "regional_government": "region",
     "city_residents": "residents",
     "environmental_ngo": "ngo",
+}
+CLARIFICATION_BY_ROLE = {
+    "city_administration": "Холдинг и область, какие взносы вы готовы подтвердить в протоколе?",
+    "industrial_holding": "Регион, какие условия нужны для согласования налоговых льгот?",
+    "regional_government": "Холдинг, что нужно согласовать, чтобы вы подтвердили свой взнос и срок реконструкции?",
+    "city_residents": "Администрация, как вы предлагаете обеспечить жителей питьевой водой до запуска очистных?",
+    "environmental_ngo": "Холдинг, какой режим работы вы готовы зафиксировать до запуска новых очистных?",
 }
 
 
@@ -207,7 +216,7 @@ class NegotiationEngine:
     async def _structured_turn(self, current: dict, phase: str, turn: int, messages: list,
                          state: dict, levers_config: list[dict], total_cost: float,
                          voting: bool = False, *, forced_against: str | None = None) -> tuple[PlayerTurn | None, dict]:
-        """Один ответ и одна попытка исправления; без текстового парсера."""
+        """Проверяет структурированный ход и при необходимости запрашивает уточнение."""
         # method=function_calling не требует нативной строгой JSON Schema у провайдера.
         # Если модель не поддерживает tools, завершаем запуск с явной ошибкой.
         session = getattr(self, "session", None)
@@ -357,10 +366,7 @@ class NegotiationEngine:
                                                allow_abstain=allow_abstain))))
                     continue
                 if questionnaire_speech:
-                    pledge = state["players"][current["name"]]["contribution"]
-                    speech = "Новых обязательств в этом ходе нет."
-                    if pledge:
-                        speech += f" Сохраняется ранее заявленный взнос стороны — {format_money(pledge)}"
+                    speech = await self._clarify_position({**current, "llm": llm}, phase, turn, state, total_cost)
                     answer = PlayerTurn(speech=speech, vote=None, own_contribution_millions=None,
                                         own_levers={}, demands=[], responses=[], withdrawn_demands=[], addressed_to=None)
                     _, action = prepare_player_turn(answer, current["name"], state, levers_config, total_cost)
@@ -373,6 +379,38 @@ class NegotiationEngine:
             state.clear()
             state.update(candidate)
             return answer, action
+
+    async def _clarify_position(self, current: dict, phase: str, turn: int, state: dict, total_cost: float) -> str:
+        """Продолжает диалог после двух некорректных ответов, сохраняя протокол."""
+        speaker = current["name"]
+        history = getattr(self, "_live_history", [])
+        prompt = [
+            SystemMessage(content=(
+                f"Ты представляешь сторону «{speaker}». Задай один короткий предметный вопрос "
+                "другой стороне по её предложению или нерешённому условию твоей стратегии. "
+                "Ответь одним вопросительным предложением по-русски без цифр. "
+                "Попроси уточнить или подтвердить предложение. Не объявляй новые обязательства, "
+                "изменения протокола, выплаченные суммы или результаты голосования."
+            )),
+            HumanMessage(content=(
+                f"Стратегия твоей стороны:\n{current['prompt']}\n\n"
+                f"{render_calculator(state, total_cost)}\n\n"
+                f"Недавние реплики:\n{render_history(history[-5:])}"
+            )),
+        ]
+        try:
+            async with asyncio.timeout(min(8.0, float(getattr(self, "request_timeout_seconds", 60)))):
+                response = await self._invoke_model(current, phase, turn, prompt)
+        except (TimeoutError, APIError, RuntimeError):
+            response = None
+        content = getattr(response, "content", None)
+        if isinstance(content, str):
+            speech = public_speech(content, speaker)
+            if re.fullmatch(r"[^.!?…\r\n\d]{8,280}\?", speech) and not any(
+                    repeats_position(speech, row["command"]) for row in history):
+                return speech
+        return CLARIFICATION_BY_ROLE.get(
+            current["profile"]["id"], "Какое условие протокола нам нужно уточнить, чтобы продвинуть переговоры?")
 
     async def _invoke_model(self, current: dict, phase: str, turn: int, messages: list):
         call = {

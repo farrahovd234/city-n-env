@@ -35,6 +35,8 @@ def public_speech(speech: str, speaker: str) -> str:
     """Translate explicit model fields without interpreting any game action."""
     speech = re.sub(rf"\s*\((?:{CONDITION_ASSIGNMENT}|shared|holding|city)\)", "", speech)
     speech = re.sub(CONDITION_ASSIGNMENT, lambda match: PUBLIC_CONDITIONS[match[1]].get(match[2], match[0]), speech)
+    speech = re.sub(r"""(?:\bguilt\s*[:=]\s*)?["'«]?\bshared\b["'»]?""",
+                    PUBLIC_CONDITIONS["guilt"]["shared"], speech, flags=re.IGNORECASE)
     speech = re.sub(rf"^{re.escape(speaker)}:\s*", "", speech, flags=re.IGNORECASE)
     speech = re.sub(r"^стартовая позиция и требования[.\n]\s*", "", speech, flags=re.IGNORECASE).strip()
     return speech[:1].upper() + speech[1:]

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from negotiation_game.schemas import repeats_position
 
 from .game_contract import ApiError, ERROR_RESPONSES, RequestBody
+from .questionnaire_review import QuestionnaireReview, questionnaire_review
 from .session_api import ROOT_PATH, InteractiveGames
 from .sessions import error
 
@@ -210,6 +211,19 @@ async def analyze_move(model, message_id: str, data: dict, moves: dict, timeout:
 
 
 def register_analysis_routes(app: FastAPI, games: InteractiveGames) -> None:
+    @app.get(f"{ROOT_PATH}/{{game_id}}/analysis/questionnaire/{{role_id}}",
+             response_model=QuestionnaireReview, responses=ERROR_RESPONSES)
+    async def analyze_questionnaire(game_id: str, role_id: str, request: Request):
+        state = games.require(game_id, request).state
+        if state["status"] != "completed":
+            raise error(409, "ANALYSIS_UNAVAILABLE", "Разбор доступен после завершения партии.")
+        role = next((item for item in state["settings"]["roles"] if item["role_id"] == role_id), None)
+        if role is None:
+            raise error(404, "ROLE_NOT_FOUND", "Роль не найдена.")
+        if not role.get("answers"):
+            raise error(409, "QUESTIONNAIRE_UNAVAILABLE", "У этой роли нет сохранённой анкеты.")
+        return questionnaire_review(state, role_id, role["answers"])
+
     @app.post(f"{ROOT_PATH}/{{game_id}}/analysis", response_model=RoleAnalysis,
               responses={**ERROR_RESPONSES, 502: {"model": ApiError}})
     async def analyze_game(game_id: str, body: AnalysisRequest, request: Request):

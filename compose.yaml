@@ -3,17 +3,52 @@ services:
     build:
       context: .
       target: game
-    env_file:
-      - path: ./backend/.env
-        required: false
     environment:
       CITY_N_RUNS_DIR: /var/lib/city-n/runs
+      CITY_N_LLM_BASE_URL: http://gpt2giga:8090/v1
+      CITY_N_LLM_MODEL: ${GIGACHAT_MODEL:-GigaChat-3-Lightning}
+      CITY_N_LLM_API_KEY: ${CITY_N_PROXY_API_KEY:-city-n-local}
+      CITY_N_IMAGES: ${CITY_N_IMAGES:-1}
+      CITY_N_EMBEDDING_BASE_URL: ${CITY_N_EMBEDDING_BASE_URL:-}
+      CITY_N_EMBEDDING_API_KEY: ${CITY_N_EMBEDDING_API_KEY:-}
+      CITY_N_SECURE_COOKIE: ${CITY_N_SECURE_COOKIE:-0}
+    depends_on:
+      gpt2giga:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${CITY_N_HTTP_PORT:-8000}:8000"
     volumes:
       - game-data:/var/lib/city-n
     healthcheck:
       test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/scenario', timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+  gpt2giga:
+    build:
+      context: .
+      target: gigachat
+    environment:
+      GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat-3-Lightning}
+      GPT2GIGA_HOST: 0.0.0.0
+      GPT2GIGA_PORT: "8090"
+      GPT2GIGA_MODE: PROD
+      GPT2GIGA_ENABLE_API_KEY_AUTH: "true"
+      GPT2GIGA_API_KEY: ${CITY_N_PROXY_API_KEY:-city-n-local}
+      GPT2GIGA_CORS_ALLOW_ORIGINS: "[]"
+      GPT2GIGA_LOG_FILENAME: /tmp/gpt2giga.log
+      GPT2GIGA_LOG_LEVEL: WARNING
+      GPT2GIGA_LOG_REDACT_SENSITIVE: "true"
+      GPT2GIGA_TRAFFIC_LOG_ENABLED: "false"
+      GIGACHAT_USE_BUNDLED_CA: "true"
+      GIGACHAT_VERIFY_SSL_CERTS: "true"
+    healthcheck:
+      # /health is available before the upstream model catalog loads.
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8090/health', timeout=2).close()"]
       interval: 10s
       timeout: 3s
       retries: 3
