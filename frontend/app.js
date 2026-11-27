@@ -12,8 +12,11 @@
     calculating_result: 'Расчёт последствий',
   };
   const voteLabels = { for: 'За', against: 'Против', abstain: 'Воздержался' };
-  const fundingLabels = { start_money: 'Первое предложение по взносу', comfort_money: 'Желаемый взнос', max_money: 'Потолок взноса' };
-  const picturedRoles = new Set(['city_administration', 'industrial_holding', 'regional_government', 'city_residents', 'environmental_ngo']);
+  const fundingLabels = {
+    start_money: 'Первое предложение по взносу',
+    comfort_money: 'Желаемый взнос',
+    max_money: 'Потолок взноса',
+  };
   const formatNumber = new Intl.NumberFormat('ru-RU');
   const savedGame = 'city_n_game_id';
   const draftKey = (id) => `city_n_draft_${id}`;
@@ -21,12 +24,104 @@
   const analysisRoleKey = (id) => `city_n_analysis_role_${id}`;
   const analysisRetryDelays = [0, 800, 2000];
   const createKey = 'city_n_create_key';
-  const readableValue = (value) => typeof value === 'number' ? formatNumber.format(value) : value;
+  const readableValue = (value) => (typeof value === 'number' ? formatNumber.format(value) : value);
   const guiltLabels = new Map([
     ['shared', 'Город и холдинг'],
     ['holding', 'Холдинг'],
     ['city', 'Город'],
   ]);
+  const outcomeIdByTitle = new Map([
+    ['Открытая река', 'open_river'],
+    ['Чистая вода, закрытые данные', 'closed_data'],
+    ['Компромисс', 'compromise'],
+    ['Решили без жителей', 'without_residents'],
+    ['Долгострой', 'dolgostroy'],
+    ['Недострой', 'nedostroy'],
+    ['Каждый сам за себя', 'each_for_self'],
+    ['Застой', 'stagnation'],
+  ]);
+  const realCityCases = {
+    open_river: [
+      {
+        city: 'Отрадный, Самарская область',
+        summary: 'В рамках проекта «Оздоровление Волги» при федеральном и региональном софинансировании (>924 млн ₽) модернизировали очистные мощностью 13 тыс. м³/сут с полной биологической очисткой и УФ-обеззараживанием — объект прошёл проверки и вышел на целевые показатели.',
+      },
+      {
+        city: 'Москва (Курьяновские и Люберецкие ОС)',
+        summary: 'Масштабная реконструкция блоков очистки включила автоматические датчики качества воды в реальном времени и передачу данных в диспетчерские центры в сочетании с публичной отчётностью по снижению сбросов и запахов.',
+      },
+    ],
+    closed_data: [
+      {
+        city: 'Нижнекамск, Татарстан',
+        summary: 'Крупные предприятия промузла внедряют автоматические датчики контроля по закону об охране окружающей среды, однако сырые показатели передаются преимущественно в ведомственный контур Росприроднадзора, из-за чего у жителей сохраняется запрос на открытый доступ и свои замеры.',
+      },
+      {
+        city: 'Липецк',
+        summary: 'При модернизации производств и ведомственном контроле отсутствие простого «прямого эфира» с показаниями источников подталкивает местные НКО требовать открытых витрин данных и вести параллельный общественный мониторинг.',
+      },
+    ],
+    compromise: [
+      {
+        city: 'Череповец, Вологодская область',
+        summary: 'Город и крупнейшие предприятия поэтапно договорились о программах модернизации и постах мониторинга на границах санитарно-защитных зон — ценой взаимных уступок по срокам и объёму открываемых для жителей данных.',
+      },
+      {
+        city: 'Ревда, Свердловская область (запуск 2025 года)',
+        summary: 'После многолетних судов и перераспределения обязательств между муниципальным, областным водоканалами и подрядчиками новые очистные на 20 тыс. м³/сут удалось довести до тестового пуска через серию хозяйственных компромиссов.',
+      },
+    ],
+    without_residents: [
+      {
+        city: 'Копейск, Челябинская область',
+        summary: 'Предложенный проект реконструкции очистных вызвал протесты горожан и активистов «Народного фронта»: он предусматривал очистку лишь от 6 из 12 видов загрязнений и ставил под угрозу озеро Курлады. Конфликт перешёл в обращения к прокуратуре с требованием пересмотра проекта.',
+      },
+      {
+        city: 'Региональные публичные слушания по сбросам',
+        summary: 'В ряде промышленных городов утверждение схем водоотведения без реального согласования с жителями и эко-НКО приводит к политизации темы, жалобам в надзорные органы и многолетнему противостоянию.',
+      },
+    ],
+    dolgostroy: [
+      {
+        city: 'Ревда, Свердловская область (бассейн р. Чусовой)',
+        summary: 'Планы по обновлению изношенных на 70–100% очистных тянулись с 2009 года до тестового запуска осенью 2025-го, сопровождаясь сменой подрядчиков, судебными исками между водоканалами и усталостью горожан от затянувшегося ожидания.',
+      },
+      {
+        city: 'Города Черноморского побережья (Геленджик, Сочи)',
+        summary: 'Срывы и переносы сроков модернизации коллекторов и очистных в пиковые сезоны неоднократно оборачивались авариями, графиками подачи и экстренным подвозом воды автоцистернами, вызывая волну жалоб жителей.',
+      },
+    ],
+    nedostroy: [
+      {
+        city: 'Волгоград (остров Голодный)',
+        summary: 'Реконструкция ключевых сооружений биологической очистки столкнулась со срывами сроков подрядчиками, технологическими недоделками и проверками контролирующих ведомств, надолго задержав полноценный ввод узла.',
+      },
+      {
+        city: 'Объекты Поволжья в нацпроекте «Экология»',
+        summary: 'Проверки Счётной палаты и Госдумы фиксировали случаи, когда средства на очистные распределялись и частично осваивались, но из-за ошибок проектирования и нехватки пусконаладки станции годами не выходили на нормативную очистку.',
+      },
+    ],
+    each_for_self: [
+      {
+        city: 'Липецк и Нижнекамск (гражданский мониторинг)',
+        summary: 'Когда общего соглашения о прозрачности нет, эко-активисты и НКО самостоятельно разворачивают сети народного мониторинга и независимые замеры, а город и заводы точечно закрывают отдельные локальные проблемы.',
+      },
+      {
+        city: 'Муниципалитеты с аварийным подвозом воды',
+        summary: 'При замороженной общей реконструкции местные власти вынуждены самостоятельно организовывать подвоз питьевой воды автоцистернами в отдельные районы, пока спор о финансировании стройки остаётся без решения.',
+      },
+    ],
+    stagnation: [
+      {
+        city: 'Проблемные узлы Нижегородской и Самарской областей',
+        summary: 'При затянутых спорах, ошибках в проектах и отсутствии единого контроля обновление ряда очистных фактически встало на паузу, а неочищенные или полуочищенные стоки продолжили поступать в водоёмы при нарастающем недовольстве населения.',
+      },
+      {
+        city: 'Копейск (узел у озера Курлады)',
+        summary: 'Противостояние вокруг несогласованного проекта реконструкции привело к остановке прежних решений и длительному разбирательству сторон без реального запуска обновлённых сооружений.',
+      },
+    ],
+  };
 
   function conditionValue(id, value) {
     if (id === 'guilt' && guiltLabels.has(value)) return guiltLabels.get(value);
@@ -54,7 +149,7 @@
       paragraph: summary.paragraph,
       observation: summary.observation,
       references: summary.references,
-      findings: report.message_ids.flatMap((id) => byMessage.has(id) ? [byMessage.get(id)] : []),
+      findings: report.message_ids.flatMap((id) => (byMessage.has(id) ? [byMessage.get(id)] : [])),
       missing_message_ids: report.message_ids.filter((id) => !byMessage.has(id)),
       strategy_excerpt: report.strategy_excerpt ?? previous?.strategy_excerpt,
       suggested_strategy: report.suggested_strategy ?? previous?.suggested_strategy,
@@ -68,18 +163,10 @@
     return node;
   }
 
-  function portrait(roleId) {
-    const image = element('img', null, 'role-portrait');
-    image.alt = '';
-    image.width = image.height = 432;
-    if (picturedRoles.has(roleId)) image.src = `assets/tabletop/${roleId}.webp`;
-    else image.hidden = true;
-    return image;
-  }
-
   function validQuestionValue(question, value) {
     const bounds = question.number_range;
-    return bounds ? Number.isInteger(value) && value >= bounds.minimum && value <= bounds.maximum
+    return bounds
+      ? Number.isInteger(value) && value >= bounds.minimum && value <= bounds.maximum
       : question.options.some((option) => Object.is(option.value, value));
   }
 
@@ -124,26 +211,30 @@
       window.addEventListener('hashchange', () => this.route());
       document.querySelector('.skip-link').onclick = (event) => {
         event.preventDefault();
-        $('main').focus();
+        $('main-info-col').focus();
       };
+      $('exit-btn').onclick = () => window.close();
       $('role-settings').onsubmit = (event) => {
         event.preventDefault();
         const button = $('submit-settings-btn');
         void this.act(async () => {
           button.setAttribute('aria-busy', 'true');
-          button.textContent = 'Запускаем партию…';
+          button.textContent = 'ЗАПУСКАЕМ…';
           try {
             await this.start();
           } finally {
-            button.textContent = 'Запустить партию';
+            button.textContent = 'ГОТОВО';
             button.removeAttribute('aria-busy');
           }
         });
       };
       const autoDialog = $('auto-settings-dialog');
-      $('automatic-settings').onclick = () => this.requestDefaults();
       autoDialog.addEventListener('close', () => {
-        if (autoDialog.returnValue === 'confirm' && this.currentScreen === 'settings') void this.fillDefaults();
+        const targetRole = this.pendingAutoRole || this.selectedRole;
+        this.pendingAutoRole = null;
+        if (autoDialog.returnValue === 'confirm' && this.currentScreen === 'settings') {
+          void this.fillDefaults(targetRole);
+        }
       });
       $('latest-speech').onclick = () => {
         const item = this.latestSpeech();
@@ -152,8 +243,10 @@
       };
       $('next-role').onclick = () => {
         const index = this.roles.findIndex((role) => role.id === this.selectedRole);
+        if (index < 0 || index + 1 >= this.roles.length) return;
         this.selectRole(this.roles[index + 1].id);
         this.saveDraft();
+        $('main-info-col').scrollTop = 0;
         $('questionnaire-title').focus();
       };
       $('manual-input').onsubmit = (event) => {
@@ -161,7 +254,8 @@
         const pending = this.game?.pending_input;
         if (!pending || pending.input_id !== this.inputId) return;
         const data = new FormData(event.currentTarget);
-        const value = pending.type === 'speech' ? { type: 'speech', content: data.get('content') }
+        const value = pending.type === 'speech'
+          ? { type: 'speech', content: data.get('content') }
           : { type: 'vote', vote: data.get('vote') };
         void this.act(() => this.command(`/inputs/${pending.input_id}`, value));
       };
@@ -186,7 +280,30 @@
         this.clear();
         this.navigate('start');
       };
+      this.bindAutoHideScrollbars();
       void this.restore();
+    }
+
+    bindAutoHideScrollbars() {
+      const timers = new WeakMap();
+      const show = (target, delay = 900) => {
+        target.classList.add('is-scrolling');
+        clearTimeout(timers.get(target));
+        timers.set(target, setTimeout(() => target.classList.remove('is-scrolling'), delay));
+      };
+      for (const container of [$('main-info-col'), ...document.querySelectorAll('.menu-grid')]) {
+        container.addEventListener('scroll', () => show(container), { passive: true });
+        container.addEventListener('mousemove', (event) => {
+          const rect = container.getBoundingClientRect();
+          if (rect.right - event.clientX <= 18 && container.scrollHeight > container.clientHeight) {
+            show(container, 1200);
+          }
+        }, { passive: true });
+      }
+      window.addEventListener('scroll', () => {
+        show(document.documentElement);
+        show(document.body);
+      }, { passive: true });
     }
 
     get roles() {
@@ -198,9 +315,13 @@
     }
 
     notice(id, message = '') {
-      const notice = $(id);
-      if (notice.textContent !== message) notice.textContent = message;
-      notice.hidden = !message;
+      const node = $(id);
+      if (node.textContent !== message) node.textContent = message;
+      node.hidden = !message;
+      if (id === 'setup-mode' || id === 'setup-auto-error') {
+        const card = $('setup-card');
+        if (card) card.hidden = $('setup-mode').hidden && $('setup-auto-error').hidden;
+      }
     }
 
     async act(callback) {
@@ -219,7 +340,8 @@
     }
 
     lockSettings(locked) {
-      for (const id of ['submit-settings-btn', 'automatic-settings', 'next-role']) $(id).disabled = locked;
+      for (const id of ['submit-settings-btn', 'next-role']) $(id).disabled = locked;
+      for (const btn of $('roles-nav').querySelectorAll('.role-auto-btn')) btn.disabled = locked;
       $('roles-nav').inert = locked;
       $('role-settings').inert = locked;
     }
@@ -256,16 +378,28 @@
       this.questionnaireReviews.clear();
       this.analysisRequest = null;
       $('analysis-role').replaceChildren();
+      $('analysis-roles-nav').replaceChildren();
       $('analysis-summary').replaceChildren();
       $('analysis-preview-quotes').replaceChildren();
       $('analysis-result').replaceChildren();
       $('instruction-role').replaceChildren();
       $('instruction-text').value = '';
       $('debate-feed').replaceChildren();
+      $('protocol-panel').replaceChildren();
+      $('live-votes').replaceChildren();
+      $('final-votes').replaceChildren();
+      $('final-indicators').replaceChildren();
+      $('final-cases').replaceChildren();
+      $('final-cases').hidden = true;
+      $('final-protocol-body').replaceChildren();
+      $('final-text-content').replaceChildren();
+      $('consequence-photo').removeAttribute('src');
       $('journal-archive').open = false;
       $('final-protocol').open = false;
       $('live-journal').prepend($('journal-content'));
       this.notice('game-error');
+      this.notice('setup-mode');
+      this.notice('setup-auto-error');
     }
 
     async restore() {
@@ -326,6 +460,7 @@
 
     screen(name, page = name) {
       const previous = this.currentPage;
+      const previousScreen = this.currentScreen;
       this.currentScreen = name;
       this.currentPage = page;
       if (name !== 'debate') this.finishSpeechReveal();
@@ -337,39 +472,55 @@
         $('journal-archive').append(journal);
       }
       if (name !== 'settings' && $('auto-settings-dialog').open) $('auto-settings-dialog').close('cancel');
-      for (const view of document.querySelectorAll('.screen-view')) view.hidden = view.dataset.screenView !== name;
-      const stage = this.game ? this.gameScreen() : 'settings';
-      const hasArchive = stage === 'final' && this.messages.size > 0;
-      const available = new Set(['start', 'instruction', stage]);
-      if (hasArchive) available.add('debate');
-      if (this.game?.status === 'completed') available.add('assistant');
-      for (const link of document.querySelectorAll('.site-nav a')) {
-        const destination = link.dataset.page;
-        link.hidden = !available.has(destination);
-        if (destination === 'debate') link.href = hasArchive && name !== 'debate' ? '#journal-archive' : '#debate';
-        if (destination === page) link.setAttribute('aria-current', 'page');
-        else link.removeAttribute('aria-current');
+
+      document.querySelector('.screen-frame').dataset.currentScreen = name;
+      for (const view of document.querySelectorAll('.screen-view')) {
+        const match = view.dataset.screenView === name;
+        view.hidden = !match;
+        view.classList.toggle('active', match);
       }
-      if (name !== 'instruction') document.querySelector('video').pause();
+      for (const menu of document.querySelectorAll('.menu-view')) {
+        const match = menu.dataset.menuView === name;
+        menu.hidden = !match;
+        menu.classList.toggle('active', match);
+      }
+
+      const video = $('instruction-video');
+      if (name === 'instruction') video.play().catch(() => {});
+      else video.pause();
+
+      const stage = this.game ? this.gameScreen() : 'settings';
       if (name === 'start') {
         const link = $('start-link');
         link.href = `#${stage}`;
-        const labels = { settings: 'Настроить агентов', debate: 'Вернуться к переговорам', final: 'Посмотреть итоги' };
-        link.textContent = labels[stage];
+        const labels = {
+          settings: 'ПРОДОЛЖИТЬ НАСТРОЙКУ',
+          debate: 'ВЕРНУТЬСЯ К ДЕБАТАМ',
+          final: 'К РЕЗУЛЬТАТУ',
+        };
+        link.textContent = this.game ? labels[stage] : 'ИГРАТЬ';
       }
       if (name === 'instruction') {
-        const labels = { settings: 'К анкетам', debate: 'К переговорам', final: 'К итогам' };
         const link = $('rules-return');
         link.href = `#${stage}`;
-        link.textContent = labels[stage];
+        const labels = {
+          settings: 'К АНКЕТАМ',
+          debate: 'К ДЕБАТАМ',
+          final: 'К РЕЗУЛЬТАТУ',
+        };
+        link.textContent = this.game ? labels[stage] : 'ИГРАТЬ';
       }
       if (name === 'assistant') this.resumeAnalysis();
-      if (previous !== page) {
+
+      if (previousScreen !== name || previous !== page) {
+        $('main-info-col').scrollTop = 0;
         window.scrollTo(0, 0);
         if (previous) {
-          const heading = document.querySelector(`[data-screen-view="${name}"] h1`);
-          heading.tabIndex = -1;
-          heading.focus({ preventScroll: true });
+          const heading = document.querySelector(`[data-menu-view="${name}"] h1`);
+          if (heading) {
+            heading.tabIndex = -1;
+            heading.focus({ preventScroll: true });
+          }
         }
       }
     }
@@ -396,8 +547,8 @@
       const stored = localStorage.getItem(draftKey(this.game.game_id));
       let savedDraft;
       try { savedDraft = JSON.parse(stored); } catch (_) { savedDraft = null; }
-      $('setup-card').hidden = !this.questionnaires;
       this.notice('setup-auto-error');
+      this.notice('setup-mode');
       if (this.questionnaires) {
         const automatic = settings.setup_mode === 'automatic';
         this.draft = savedDraft?.answers ? savedDraft : {
@@ -408,8 +559,9 @@
           ])),
         };
       } else {
-        // A draft stored by an older server may still describe the original settings schema.
-        this.draft = Array.isArray(savedDraft) ? savedDraft : settings.roles.map(({ spent_on_conditions_rub, ...role }) => role);
+        this.draft = Array.isArray(savedDraft)
+          ? savedDraft
+          : settings.roles.map(({ spent_on_conditions_rub, ...role }) => role);
       }
       const selected = this.roles.find(({ id }) => this.draft.selectedRole === id);
       this.selectRole(selected?.id || this.roles[0].id);
@@ -419,45 +571,54 @@
       localStorage.setItem(draftKey(this.game.game_id), JSON.stringify(this.draft));
     }
 
-    requestDefaults() {
+    requestDefaults(roleId = this.selectedRole) {
       const dialog = $('auto-settings-dialog');
       if (dialog.open || this.busy || this.game?.status !== 'draft') return;
-      const hasManualAnswers = this.draft.mode === 'manual'
-        && Object.values(this.draft.answers).some((answers) => Object.keys(answers).length);
-      if (hasManualAnswers) {
+      const roleAnswers = this.draft.answers[roleId] || {};
+      const hasRoleAnswers = Object.keys(roleAnswers).length > 0;
+      if (hasRoleAnswers) {
+        this.pendingAutoRole = roleId;
+        $('auto-dialog-copy').textContent = `Готовые настройки заменят текущие ответы в анкете «${this.roleName(roleId)}».`;
         dialog.returnValue = '';
         dialog.showModal();
-      } else void this.fillDefaults();
+      } else {
+        void this.fillDefaults(roleId);
+      }
     }
 
-    async fillDefaults() {
-      if (this.game?.status !== 'draft') return;
+    async fillDefaults(roleId = this.selectedRole) {
+      if (this.game?.status !== 'draft' || !roleId) return;
       const id = this.game.game_id;
-      const button = $('automatic-settings');
+      const button = $('roles-nav').querySelector(`.role-auto-btn[data-auto-role="${roleId}"]`);
       await this.act(async () => {
-        button.setAttribute('aria-busy', 'true');
-        button.textContent = 'Подготавливаем анкеты…';
+        if (button) {
+          button.setAttribute('aria-busy', 'true');
+          button.textContent = 'ПОДГОТОВКА…';
+        }
         $('setup-card').dataset.state = 'pending';
         this.notice('setup-auto-error');
-        this.notice('setup-mode', 'Проверяем настройки пяти сторон на сервере.');
+        this.notice('setup-mode', 'Загружаем настройки стороны…');
         try {
           const snapshot = await api(`/${id}/settings`, 'PUT', { mode: 'automatic' });
           if (this.game?.game_id !== id) return;
           this.apply(snapshot);
-          this.draft = {
-            mode: 'automatic',
-            usedDefaults: true,
-            selectedRole: this.selectedRole,
-            answers: Object.fromEntries(snapshot.settings.roles.map((role) => [role.role_id, role.answers])),
-          };
+          const defaults = snapshot.settings.roles.find((role) => role.role_id === roleId)?.answers;
+          if (defaults) {
+            this.draft.answers[roleId] = { ...defaults };
+          }
+          this.draft.mode = 'manual';
+          this.draft.usedDefaults = true;
+          this.draft.selectedRole = this.selectedRole;
           this.saveDraft();
           this.selectRole(this.selectedRole);
         } catch (error) {
           if (error.status === 404 || error.status === 409) throw error;
           this.notice('setup-auto-error', error.message || 'Повторите автонастройку.');
         } finally {
-          button.textContent = 'Настроить автоматически';
-          button.removeAttribute('aria-busy');
+          if (button) {
+            button.textContent = 'АВТОНАСТРОЙКА';
+            button.removeAttribute('aria-busy');
+          }
           if (this.game?.game_id === id) this.renderSettingsNav();
         }
       });
@@ -479,11 +640,8 @@
       heading.id = 'questionnaire-title';
       heading.tabIndex = -1;
       const header = element('header', null, 'questionnaire-heading');
-      header.dataset.roleId = roleId;
-      const description = element('div');
-      description.append(heading);
-      if (role.interest) description.append(element('p', role.interest));
-      header.append(portrait(roleId), description);
+      header.append(heading);
+      if (role.interest) header.append(element('p', role.interest));
       form.replaceChildren(header);
       if (this.questionnaires) this.renderQuestions(form, roleId);
       else this.renderLegacySettings(form, roleId);
@@ -497,26 +655,39 @@
         for (const role of this.roles) {
           const row = element('li');
           row.dataset.game = this.game.game_id;
-          const button = element('button', null, 'role-link');
+          const button = element('button', null, 'menu-btn role-link');
+          button.type = 'button';
           button.dataset.roleId = role.id;
           const mark = element('span', '', 'role-check');
           mark.setAttribute('aria-hidden', 'true');
           const indicator = element('span', '', 'sr-only');
-          button.append(portrait(role.id), element('span', role.name), mark, indicator);
-          button.type = 'button';
+          button.append(element('span', role.name), mark, indicator);
           button.onclick = () => {
             this.selectRole(role.id);
             this.saveDraft();
+            $('main-info-col').scrollTop = 0;
           };
-          row.append(button);
+          const submenu = element('div', null, 'role-submenu');
+          submenu.hidden = true;
+          const autoBtn = element('button', 'АВТОНАСТРОЙКА', 'menu-btn role-auto-btn');
+          autoBtn.type = 'button';
+          autoBtn.dataset.autoRole = role.id;
+          autoBtn.onclick = () => this.requestDefaults(role.id);
+          submenu.append(autoBtn);
+          row.append(button, submenu);
           nav.append(row);
         }
       }
       let completed = 0;
       for (const [index, role] of this.roles.entries()) {
-        const button = nav.children[index].firstChild;
-        if (this.selectedRole === role.id) button.setAttribute('aria-current', 'true');
+        const row = nav.children[index];
+        const button = row.querySelector('.role-link');
+        const submenu = row.querySelector('.role-submenu');
+        const active = this.selectedRole === role.id;
+        if (active) button.setAttribute('aria-current', 'true');
         else button.removeAttribute('aria-current');
+        button.classList.toggle('active', active);
+        if (submenu) submenu.hidden = !active || !this.questionnaires;
         const complete = this.questionnaires && !this.missingQuestion(role.id);
         if (complete) completed++;
         button.querySelector('.role-check').textContent = complete ? '✓' : '';
@@ -524,7 +695,7 @@
       }
       if (this.questionnaires) {
         const progress = $('settings-progress');
-        const count = `${completed} / ${this.roles.length}`;
+        const count = `Анкеты: ${completed} / ${this.roles.length}`;
         if (progress.textContent !== count) progress.textContent = count;
         progress.setAttribute('aria-label', `Анкет заполнено: ${completed} из ${this.roles.length}`);
         const meter = $('settings-meter');
@@ -537,8 +708,13 @@
       }
       const failed = !$('setup-auto-error').hidden;
       $('setup-card').dataset.state = failed ? 'error' : this.draft.mode === 'automatic' ? 'ready' : 'idle';
-      const message = failed ? '' : this.draft.mode === 'automatic' ? 'Настройки пяти сторон готовы. Можно запускать партию.'
-        : this.draft.usedDefaults ? 'Автоматические ответы отредактированы. Партия запустится с ручными настройками.' : '';
+      const message = failed
+        ? ''
+        : this.draft.mode === 'automatic'
+          ? 'Настройки пяти сторон готовы. Можно запускать партию.'
+          : this.draft.usedDefaults
+            ? 'Автонастройка применена.'
+            : '';
       this.notice('setup-mode', message);
       $('next-role').hidden = this.selectedRole === this.roles.at(-1).id;
     }
@@ -551,12 +727,15 @@
       budgetHeader.append(element('h3', 'Бюджет стороны'));
       if (Number.isInteger(reserve)) budgetHeader.append(element('span', `${formatNumber.format(reserve / 1_000_000)} млн ₽`));
       budget.append(budgetHeader);
+
       const terms = element('section', null, 'questionnaire-section');
       terms.append(element('header', null, 'question-group-heading'));
       terms.firstChild.append(element('h3', 'Условия переговоров'));
+
       for (const question of this.questionnaires[roleId].fields) {
         const value = answers[question.id];
-        const funding = Object.hasOwn(fundingLabels, question.id) || (roleId === 'city_administration' && question.id === 'water_supply');
+        const funding = Object.hasOwn(fundingLabels, question.id)
+          || (roleId === 'city_administration' && question.id === 'water_supply');
         const group = funding ? budget : terms;
         const update = (answer) => {
           if (answer === undefined) delete answers[question.id];
@@ -599,7 +778,9 @@
         slider.setAttribute('aria-describedby', hint.id);
         number.setAttribute('aria-describedby', hint.id);
         wrapper.append(label, hint);
-      } else wrapper.append(label);
+      } else {
+        wrapper.append(label);
+      }
       const control = element('div', null, 'range-control');
       const track = element('div', null, 'range-track');
       const limits = element('div', null, 'range-limits');
@@ -613,9 +794,10 @@
 
       const reflect = (answer) => {
         slider.value = answer ?? minimum;
-        const fraction = (slider.valueAsNumber - minimum) / (maximum - minimum);
+        const fraction = maximum === minimum ? 0 : (slider.valueAsNumber - minimum) / (maximum - minimum);
         slider.style.setProperty('--fill', `${fraction * 100}%`);
-        slider.setAttribute('aria-valuetext', answer === undefined ? `Без ответа, от ${minimum} до ${maximum} ${unit}`
+        slider.setAttribute('aria-valuetext', answer === undefined
+          ? `Без ответа, от ${minimum} до ${maximum} ${unit}`
           : `${slider.value} ${unit}`);
         if (answer === undefined || validQuestionValue(question, answer)) number.removeAttribute('aria-invalid');
         else number.setAttribute('aria-invalid', 'true');
@@ -676,28 +858,39 @@
       const draft = this.draft.find((role) => role.role_id === roleId);
       const schema = this.game.scenario.role_settings_schema[roleId];
       const mode = this.select([['ai', 'ИИ'], ['human', 'Я сам']], draft.control_mode);
-      this.settingField(form, 'Управление ролью', 'control_mode', mode, (input) => draft.control_mode = input.value);
+      this.settingField(form, 'Управление ролью', 'control_mode', mode, (input) => { draft.control_mode = input.value; });
       const money = Object.assign(element('input'), {
         type: 'number', min: 0, max: schema.pledged_rub_max, step: 1, required: true, value: draft.pledged_rub,
       });
-      this.settingField(form, 'Взнос, ₽', 'pledged_rub', money, (input) => draft.pledged_rub = input.value === '' ? null : input.valueAsNumber);
+      this.settingField(form, 'Взнос, ₽', 'pledged_rub', money, (input) => {
+        draft.pledged_rub = input.value === '' ? null : input.valueAsNumber;
+      });
       for (const condition of schema.conditions) {
         const value = draft.conditions[condition.id];
         let field;
-        if (condition.allowed) field = this.select(condition.allowed.map((option) => [option, conditionValue(condition.id, option)]), value);
-        else if (condition.type === 'boolean') field = Object.assign(element('input'), { type: 'checkbox', checked: value });
-        else field = Object.assign(element('input'), {
-          type: condition.type === 'integer' ? 'number' : 'text', value, required: true,
-          ...(condition.min_value == null ? {} : { min: condition.min_value }),
-          ...(condition.max_value == null ? {} : { max: condition.max_value }),
-        });
+        if (condition.allowed) {
+          field = this.select(condition.allowed.map((option) => [option, conditionValue(condition.id, option)]), value);
+        } else if (condition.type === 'boolean') {
+          field = Object.assign(element('input'), { type: 'checkbox', checked: value });
+        } else {
+          field = Object.assign(element('input'), {
+            type: condition.type === 'integer' ? 'number' : 'text', value, required: true,
+            ...(condition.min_value == null ? {} : { min: condition.min_value }),
+            ...(condition.max_value == null ? {} : { max: condition.max_value }),
+          });
+        }
         this.settingField(form, condition.label, `conditions.${condition.id}`, field, (input) => {
-          draft.conditions[condition.id] = condition.type === 'boolean' ? input.checked
-            : condition.type === 'integer' ? (input.value === '' ? null : Number(input.value)) : input.value;
+          draft.conditions[condition.id] = condition.type === 'boolean'
+            ? input.checked
+            : condition.type === 'integer'
+              ? (input.value === '' ? null : Number(input.value))
+              : input.value;
         });
       }
       const strategy = Object.assign(element('textarea'), { value: draft.strategy || '', maxLength: 6000, rows: 3 });
-      this.settingField(form, 'Стратегия', 'strategy', strategy, (input) => draft.strategy = input.value.trim() || null);
+      this.settingField(form, 'Стратегия', 'strategy', strategy, (input) => {
+        draft.strategy = input.value.trim() || null;
+      });
     }
 
     settingField(form, text, path, field, update, hint) {
@@ -711,7 +904,6 @@
       if (hint) wrapper.append(description);
       wrapper.append(field);
 
-      // Native selects can clip long chosen options on narrow screens.
       const chosen = field.nodeName === 'SELECT' ? element('p', '', 'chosen-option') : null;
       if (chosen) wrapper.append(chosen);
       const showChosen = () => {
@@ -770,8 +962,9 @@
         field.closest('.question').append(feedback);
         field.setAttribute('aria-invalid', 'true');
         field.setAttribute('aria-errormessage', feedback.id);
-      } else this.notice('settings-error', message);
-      // Unlock before focus if a submission routed to a different role.
+      } else {
+        this.notice('settings-error', message);
+      }
       this.lockSettings(false);
       (field || $('questionnaire-title')).focus();
     }
@@ -784,14 +977,17 @@
           const missing = this.missingQuestion(roleId);
           if (!missing) continue;
           const bounds = missing.number_range;
-          const message = bounds ? `Введите целое число от ${bounds.minimum} до ${bounds.maximum} ${bounds.unit}.`
+          const message = bounds
+            ? `Введите целое число от ${bounds.minimum} до ${bounds.maximum} ${bounds.unit}.`
             : `Ответьте на обязательные вопросы анкеты «${this.roleName(roleId)}».`;
           this.settingsError(roleId, missing.id, message);
           return;
         }
       }
-      const payload = !this.questionnaires ? { roles: this.draft }
-        : this.draft.mode === 'automatic' ? { mode: 'automatic' }
+      const payload = !this.questionnaires
+        ? { roles: this.draft }
+        : this.draft.mode === 'automatic'
+          ? { mode: 'automatic' }
           : { mode: 'manual', answers: this.draft.answers };
       try {
         await api(`/${id}/settings`, 'PUT', payload);
@@ -801,7 +997,7 @@
         const answersIndex = path.indexOf('answers');
         const legacyRole = path[0] === 'roles' && this.draft[path[1]]?.role_id;
         const roleId = answersIndex === -1 ? legacyRole : path[answersIndex + 1];
-        if (this.roles.some(({ id }) => id === roleId)) {
+        if (this.roles.some(({ id: known }) => known === roleId)) {
           const field = path.slice(answersIndex === -1 ? 2 : answersIndex + 2).join('.');
           this.settingsError(roleId, field, issue.message);
           return;
@@ -851,8 +1047,10 @@
         if (this.game?.game_id !== id) return;
         const live = this.currentScreen === 'debate' && !document.hidden;
         const latest = this.latestSpeech();
-        const following = live && (!latest || latest.getBoundingClientRect().bottom <= window.innerHeight + 48);
-        const newest = live && page.events.findLast(event => event.type === 'message.created'
+        const infoCol = $('main-info-col');
+        const limitBottom = Math.min(window.innerHeight, infoCol.getBoundingClientRect().bottom);
+        const following = live && (!latest || latest.getBoundingClientRect().bottom <= limitBottom + 48);
+        const newest = live && page.events.findLast((event) => event.type === 'message.created'
           && !this.messages.has(event.payload.message_id));
         let added = 0;
         for (const event of page.events) {
@@ -862,10 +1060,13 @@
               reveal: event === newest,
               follow: following,
             })) added++;
+          } else {
+            this.pollRefresh = true;
           }
-          else this.pollRefresh = true;
         }
-        if (added && following) this.scrollToSpeech($('current-speaker').hidden ? this.latestSpeech() : $('current-speaker'));
+        if (added && following) {
+          this.scrollToSpeech($('current-speaker').hidden ? this.latestSpeech() : $('current-speaker'));
+        }
         this.cursor = page.next_cursor;
         if (page.has_more) delay = 0;
         else if (this.pollRefresh) {
@@ -884,7 +1085,9 @@
           } catch (refreshError) {
             if (this.game?.game_id === id) this.handleError(refreshError);
           }
-        } else if (error.status === 404) this.handleError(error);
+        } else if (error.status === 404) {
+          this.handleError(error);
+        }
       } finally {
         if (this.polling === id) this.polling = null;
         if (this.game?.game_id === id && this.game.status === 'running') this.schedulePoll(delay);
@@ -896,9 +1099,14 @@
     }
 
     scrollToSpeech(item) {
+      if (!item) return;
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const position = item?.getBoundingClientRect();
-      if (position && (position.bottom > window.innerHeight || position.top < 0)) {
+      const infoCol = $('main-info-col');
+      const box = infoCol.getBoundingClientRect();
+      const position = item.getBoundingClientRect();
+      const topLimit = Math.max(0, box.top);
+      const bottomLimit = Math.min(window.innerHeight, box.bottom);
+      if (position.bottom > bottomLimit || position.top < topLimit) {
         item.scrollIntoView({ behavior: reduced ? 'instant' : 'smooth', block: 'nearest' });
       }
     }
@@ -910,7 +1118,7 @@
       let list = this.rounds.get(phase);
       if (!list) {
         const round = element('section', null, 'journal-round');
-        round.append(element('h2', phaseLabels[phase] || 'Выступления'));
+        round.append(element('h2', phaseLabels[phase] || 'Выступления', 'journal-round-title'));
         list = element('ol', null, 'round-messages');
         list.start = number;
         round.append(list);
@@ -927,13 +1135,10 @@
         item.addEventListener('animationend', () => item.classList.remove('speech-new'), { once: true });
       }
       item.tabIndex = -1;
-      const meta = element('span', `Реплика ${number}`, 'speech-number');
-      const copy = element('div', null, 'speech-copy');
       const heading = element('div', null, 'speech-heading');
-      heading.append(element('h3', this.roleName(message.role_id), 'speech-role'), meta);
+      heading.append(element('h3', this.roleName(message.role_id), 'speech-role'));
       const text = element('p', publicText(message.content), 'speech-text');
-      copy.append(heading, text);
-      item.append(portrait(message.role_id), copy);
+      item.append(heading, text);
       entry.append(item);
       list.append(entry);
       this.messages.set(message.message_id, { item, number });
@@ -968,10 +1173,12 @@
         }
         const next = 2 + Math.floor((ends.length - 2) * elapsed / duration);
         if (next > visible) {
+          const infoCol = $('main-info-col');
+          const bottomLimit = Math.min(window.innerHeight, infoCol.getBoundingClientRect().bottom);
           const bottom = item.getBoundingClientRect().bottom;
           paragraph.textContent = content.slice(0, ends[next - 1]);
           visible = next;
-          if (follow && bottom <= window.innerHeight + 32 && item.getBoundingClientRect().bottom > window.innerHeight) {
+          if (follow && bottom <= bottomLimit + 32 && item.getBoundingClientRect().bottom > bottomLimit) {
             item.scrollIntoView({ behavior: 'instant', block: 'end' });
           }
         }
@@ -994,12 +1201,7 @@
       const count = this.messages.size;
       $('empty-journal').hidden = !!count || !!this.game.current_role_id;
       $('latest-speech').hidden = !count;
-      const limit = this.game.scenario.max_dialogue_messages;
-      $('journal-progress').textContent = limit ? `${count} / ${limit} реплик` : `Реплик: ${count}`;
-      const meter = $('journal-meter');
-      meter.hidden = !limit;
-      if (limit) { meter.max = limit; meter.value = count; }
-      $('archive-count').textContent = `Реплик: ${count}`;
+      $('archive-count').textContent = `(${count})`;
     }
 
     renderDebate() {
@@ -1008,49 +1210,35 @@
       const completed = game.status === 'completed';
       this.renderJournalCount();
       const pause = game.pause_state === 'requested' ? ' · Пауза запрошена' : game.pause_state === 'paused' ? ' · Пауза' : '';
-      $('phase-title').textContent = completed ? 'Заседание завершено' : (phaseLabels[game.phase] || 'Подготовка участников') + pause;
-      $('newspaper-action').hidden = !completed || !game.result;
-      const roster = $('debate-roles');
-      if (roster.dataset.gameId !== game.game_id) {
-        roster.dataset.gameId = game.game_id;
-        roster.replaceChildren(...this.roles.map((role) => {
-          const card = element('li');
-          card.dataset.roleId = role.id;
-          card.append(portrait(role.id), element('span', role.name));
-          return card;
-        }));
-      }
-      for (const card of roster.children) {
-        if (card.dataset.roleId === game.current_role_id) card.setAttribute('aria-current', 'true');
-        else card.removeAttribute('aria-current');
-      }
+      $('phase-title').textContent = completed
+        ? 'Заседание завершено'
+        : (phaseLabels[game.phase] || 'Подготовка участников') + pause;
+      const hasCompletedResult = completed && Boolean(game.result);
+      $('newspaper-action').hidden = !hasCompletedResult;
+      $('debate-open-final').hidden = !hasCompletedResult;
+
       const speaker = $('current-speaker');
       speaker.hidden = !game.current_role_id;
       if (game.current_role_id && speaker.dataset.roleId !== game.current_role_id) {
         speaker.dataset.roleId = game.current_role_id;
-        const text = element('div');
-        text.append(element('small'), element('strong', this.roleName(game.current_role_id)));
-        speaker.replaceChildren(portrait(game.current_role_id), text);
+        speaker.replaceChildren(element('strong', this.roleName(game.current_role_id)), element('small'));
       }
       if (game.current_role_id) {
-        const caption = game.pause_state !== 'none' ? 'Пауза' : game.pending_input ? 'Текущий ход'
-          : game.phase === 'voting' ? 'Голосует' : 'Готовит реплику';
+        const caption = game.pause_state !== 'none'
+          ? 'Пауза'
+          : game.pending_input
+            ? 'Текущий ход'
+            : game.phase === 'voting'
+              ? 'Голосует'
+              : 'Готовит реплику';
         const status = speaker.querySelector('small');
         if (status.textContent !== caption) status.textContent = caption;
       }
-      $('pause-btn').textContent = game.pause_state === 'none' ? 'Приостановить' : 'Продолжить';
+
+      $('pause-btn').textContent = game.pause_state === 'none' ? 'ПАУЗА' : 'ПРОДОЛЖИТЬ';
       $('pause-btn').hidden = !actions.includes('pause') && !actions.includes('continue');
       $('stop-btn').hidden = !actions.includes('cancel');
 
-      const agenda = $('hearing-agenda');
-      agenda.replaceChildren();
-      const phases = Object.keys(phaseLabels);
-      for (const [index, phase] of phases.entries()) {
-        const item = element('li', phaseLabels[phase]);
-        if (phase === game.phase) item.setAttribute('aria-current', 'step');
-        if (completed || index < phases.indexOf(game.phase)) item.className = 'phase-passed';
-        agenda.append(item);
-      }
       this.renderProtocol($('protocol-panel'));
       this.renderVotes($('live-votes'));
       this.renderLegacyInput();
@@ -1084,7 +1272,7 @@
             field.required = true;
             form.append(this.label(`Ваш голос по протоколу №${pending.protocol_version}`, field));
           }
-          form.append(element('button', 'Отправить', 'button button-primary'));
+          form.append(element('button', 'Отправить', 'action-btn-solid'));
         }
       }
       for (const field of form.elements) field.disabled = !actions.includes('submit_input');
@@ -1106,8 +1294,10 @@
           const funding = element('dl', null, 'funding-list');
           for (const share of item.funding) {
             const row = element('div');
-            row.append(element('dt', this.roleName(share.role_id)),
-              element('dd', `${formatNumber.format(share.amount_rub)} ₽`));
+            row.append(
+              element('dt', this.roleName(share.role_id)),
+              element('dd', `${formatNumber.format(share.amount_rub)} ₽`),
+            );
             funding.append(row);
           }
           const details = element('dd');
@@ -1131,14 +1321,35 @@
       container.append(list);
     }
 
+    renderRealCases(container, result) {
+      const urlMatch = result.image_url?.match(/\/([a-z0-9_]+)\.png(?:$|\?)/i)?.[1];
+      const outcomeId = (urlMatch && realCityCases[urlMatch] && urlMatch)
+        || outcomeIdByTitle.get(result.outcome_title);
+      const cases = outcomeId ? realCityCases[outcomeId] : null;
+      container.replaceChildren();
+      container.hidden = !cases?.length;
+      if (!cases?.length) return;
+      container.append(element('h2', 'Похожие кейсы в городах России'));
+      const list = element('dl', null, 'real-cases-list');
+      for (const item of cases) {
+        const row = element('div');
+        row.append(element('dt', item.city), element('dd', item.summary));
+        list.append(row);
+      }
+      container.append(list);
+    }
+
     renderVotes(container) {
       const { vote_summary: summary, protocol_status: status } = this.game;
       container.hidden = !summary;
       container.replaceChildren();
       if (!summary) return;
       container.append(element('h2', 'Голосование'));
-      const statusLabel = status === 'accepted' ? 'Протокол принят'
-        : status === 'rejected' ? 'Соглашение не достигнуто' : 'Итоги голосования';
+      const statusLabel = status === 'accepted'
+        ? 'Протокол принят'
+        : status === 'rejected'
+          ? 'Соглашение не достигнуто'
+          : 'Итоги голосования';
       container.append(element('p', statusLabel, 'vote-status'));
       const counts = element('dl', null, 'vote-totals');
       for (const [key, label] of [['for', 'За'], ['against', 'Против'], ['abstain', 'Воздерж.']]) {
@@ -1160,14 +1371,22 @@
     renderResult() {
       const game = this.game;
       const result = game.result;
-      $('result-title').textContent = { completed: 'Итоги партии', cancelled: 'Партия отменена', failed: 'Партия прервана' }[game.status];
+      $('result-title').textContent = {
+        completed: 'ЧТО СТАЛО ЧЕРЕЗ 10 ЛЕТ',
+        cancelled: 'ПАРТИЯ ОТМЕНЕНА',
+        failed: 'ПАРТИЯ ПРЕРВАНА',
+      }[game.status];
       const cancelled = game.status === 'cancelled';
-      this.notice('result-state-copy', cancelled ? (this.messages.size ? 'Сохранённые реплики доступны в журнале ниже.'
-        : 'Заседание завершилось до первой реплики.') : '');
-      $('finish-game').textContent = result ? 'Завершить партию' : 'К началу';
+      this.notice(
+        'result-state-copy',
+        cancelled
+          ? (this.messages.size ? 'Сохранённые реплики доступны в журнале ниже.' : 'Заседание завершилось до первой реплики.')
+          : '',
+      );
+      $('finish-game').textContent = result ? 'ЗАВЕРШИТЬ' : 'К НАЧАЛУ';
       this.notice('result-error', game.error?.message);
       $('retry-result').hidden = !game.available_actions.includes('retry_result');
-      $('final-newspaper').hidden = !result;
+      $('final-heading').hidden = !result;
       $('final-sidebar').hidden = !result && !game.protocol && !game.vote_summary;
       $('final-indicators').hidden = !result;
 
@@ -1181,28 +1400,72 @@
       if (result) {
         $('outcome-title').textContent = result.outcome_title;
         $('newspaper-horizon').textContent = result.period_months === 120
-          ? 'Город через 10 лет' : `Город через ${result.period_months} мес.`;
+          ? 'Город через 10 лет'
+          : `Город через ${result.period_months} мес.`;
         $('final-photo').hidden = !result.image_url;
         if (result.image_url) $('consequence-photo').src = result.image_url;
         else $('consequence-photo').removeAttribute('src');
         const paragraphs = (result.herald_text || '').trim().split(/\n\s*\n/).filter(Boolean);
         $('final-text-content').replaceChildren(...paragraphs.map((paragraph) => element('p', paragraph)));
+        this.renderRealCases($('final-cases'), result);
         $('final-indicators').replaceChildren();
         this.renderIndicators($('final-indicators'), result, 'Итоговые показатели');
+      } else {
+        $('final-photo').hidden = true;
+        $('consequence-photo').removeAttribute('src');
+        $('final-text-content').replaceChildren();
+        $('final-cases').replaceChildren();
+        $('final-cases').hidden = true;
       }
-      $('journal-archive').hidden = this.messages.size === 0;
+      const hasMessages = this.messages.size > 0;
+      $('journal-archive').hidden = !hasMessages;
+      $('open-archive-link').hidden = !hasMessages;
+      $('assistant-archive-link').hidden = !hasMessages;
       this.renderJournalCount();
+
       $('analysis-panel').hidden = game.status !== 'completed';
       $('open-assistant').hidden = game.status !== 'completed';
       if (game.status === 'completed' && !$('analysis-role').options.length) {
         $('analysis-role').replaceChildren(...this.roles.map((role) => new Option(role.name, role.id)));
+        this.renderAssistantRolesNav();
         try {
           const saved = JSON.parse(sessionStorage.getItem(analysisKey(game.game_id)) || '[]');
           for (const [roleId, report] of saved) this.analysisResults.set(roleId, report);
           const roleId = sessionStorage.getItem(analysisRoleKey(game.game_id));
           if (this.roles.some((role) => role.id === roleId)) $('analysis-role').value = roleId;
-        } catch { this.analysisResults.clear(); }
+        } catch {
+          this.analysisResults.clear();
+        }
         this.showAnalysis();
+      }
+    }
+
+    renderAssistantRolesNav() {
+      const nav = $('analysis-roles-nav');
+      nav.replaceChildren();
+      for (const role of this.roles) {
+        const row = element('li');
+        const button = element('button', null, 'menu-btn role-link');
+        button.type = 'button';
+        button.dataset.roleId = role.id;
+        const mark = element('span', '', 'role-check');
+        mark.setAttribute('aria-hidden', 'true');
+        button.append(element('span', role.name), mark);
+        button.onclick = () => {
+          if (this.analysisRequest) return;
+          $('analysis-role').value = role.id;
+          $('main-info-col').scrollTop = 0;
+          this.resumeAnalysis();
+        };
+        const submenu = element('div', null, 'role-submenu');
+        submenu.hidden = true;
+        const analyzeBtn = element('button', 'РАЗОБРАТЬ', 'menu-btn role-auto-btn role-analyze-btn');
+        analyzeBtn.type = 'button';
+        analyzeBtn.dataset.analyzeRole = role.id;
+        analyzeBtn.onclick = () => void this.requestAnalysis();
+        submenu.append(analyzeBtn);
+        row.append(button, submenu);
+        nav.append(row);
       }
     }
 
@@ -1263,7 +1526,7 @@
           if (!complete) this.analysisFailures.add(roleId);
           this.analysisRequest = null;
           this.showAnalysis();
-          if (complete && document.activeElement === $('request-analysis')) {
+          if (complete && document.activeElement?.classList?.contains('role-analyze-btn')) {
             $('analysis-result-title')?.focus();
           }
         }
@@ -1276,27 +1539,61 @@
       const messages = this.analysisMessages(roleId);
       const pending = this.analysisRequest;
       const failed = this.analysisFailures.has(roleId);
-      const submit = $('request-analysis');
       const complete = Boolean(report && !report.missing_message_ids?.length);
       const ready = complete && !pending;
       const answers = this.game.settings.roles.find((role) => role.role_id === roleId)?.answers;
       const canReviewQuestionnaire = answers && Object.keys(answers).length > 0;
       const questionnaireOnly = canReviewQuestionnaire && (failed || !messages.length);
-      submit.textContent = !messages.length ? 'Нет реплик для разбора'
-        : pending ? 'Готовим разбор' : complete ? 'Разбор готов'
-        : failed ? 'Разбор завершён' : 'Разобрать переговоры';
-      submit.setAttribute('aria-disabled', String(Boolean(pending || complete || failed || !messages.length)));
-      submit.setAttribute('aria-busy', String(Boolean(pending)));
+      const actionText = !messages.length
+        ? 'НЕТ РЕПЛИК'
+        : pending
+          ? 'ГОТОВИМ РАЗБОР…'
+          : complete
+            ? 'РАЗБОР ГОТОВ'
+            : failed
+              ? 'РАЗБОР ЗАВЕРШЁН'
+              : 'РАЗОБРАТЬ';
+
       $('analysis-role').disabled = Boolean(pending);
-      const status = pending?.retrying ? 'Помощник заново готовит недостающие оценки…'
-        : pending ? 'Помощник читает реплики в журнале…' : '';
+
+      for (const item of $('analysis-roles-nav').children) {
+        const button = item.querySelector('.role-link');
+        const submenu = item.querySelector('.role-submenu');
+        const analyzeBtn = item.querySelector('.role-analyze-btn');
+        const itemRoleId = button.dataset.roleId;
+        const active = itemRoleId === roleId;
+        if (active) button.setAttribute('aria-current', 'true');
+        else button.removeAttribute('aria-current');
+        button.classList.toggle('active', active);
+        button.disabled = Boolean(pending);
+        if (submenu) submenu.hidden = !active;
+        if (active && analyzeBtn) {
+          analyzeBtn.textContent = actionText;
+          analyzeBtn.setAttribute('aria-disabled', String(Boolean(pending || complete || failed || !messages.length)));
+          analyzeBtn.setAttribute('aria-busy', String(Boolean(pending)));
+        }
+        const itemReport = this.analysisResults.get(itemRoleId);
+        const done = Boolean(itemReport && !itemReport.missing_message_ids?.length);
+        button.querySelector('.role-check').textContent = done ? '✓' : '';
+      }
+
+      const status = pending?.retrying
+        ? 'Помощник заново готовит недостающие оценки…'
+        : pending
+          ? 'Помощник читает реплики в журнале…'
+          : '';
       this.notice('analysis-status', status);
       this.notice('analysis-error', failed ? 'Помощнику не удалось подготовить полный разбор.' : '');
+
       const summary = $('analysis-summary');
       if (summary.dataset.roleId !== roleId || !summary.firstChild) {
         summary.dataset.roleId = roleId;
-        summary.replaceChildren(portrait(roleId), element('h2', this.roleName(roleId)));
+        summary.replaceChildren(
+          element('h2', this.roleName(roleId)),
+          element('p', 'Разбор всех реплик выбранной стороны и рекомендации на следующую партию.'),
+        );
       }
+
       const preview = $('analysis-preview');
       preview.hidden = ready;
       if (!ready) {
@@ -1309,6 +1606,7 @@
           else quotes.append(element('p', 'У этой стороны нет реплик в журнале.', 'analysis-coverage'));
         }
       }
+
       const content = $('analysis-result');
       const sourceOpen = content.dataset.roleId === roleId && content.querySelector('.strategy-source')?.open;
       content.dataset.roleId = roleId;
@@ -1329,8 +1627,11 @@
       const body = element('div', null, 'analysis-body');
       if (report.message_ids || structured) {
         if (report.message_ids) {
-          overview.append(element('p', `Разобрано ${report.findings.length} из ${report.message_ids.length} реплик.`,
-            'analysis-coverage'));
+          overview.append(element(
+            'p',
+            `Разобрано ${report.findings.length} из ${report.message_ids.length} реплик.`,
+            'analysis-coverage',
+          ));
         }
         const findings = element('div', null, 'analysis-findings');
         findings.append(...report.findings.map((finding) => this.analysisFinding(finding)));
@@ -1355,8 +1656,10 @@
       const heading = element('header', null, 'finding-header');
       const move = this.messages.get(finding.references[0].message_id);
       const verdictLabel = { keep: 'Удачный ход', improve: 'Можно улучшить', neutral: 'Наблюдение' };
-      heading.append(element('h3', move ? `Реплика ${move.number}` : 'Ход стороны'),
-        element('span', verdictLabel[finding.verdict], 'finding-verdict'));
+      heading.append(
+        element('h3', move ? `Реплика ${move.number}` : 'Ход стороны'),
+        element('span', verdictLabel[finding.verdict], 'finding-verdict'),
+      );
       card.append(heading, element('p', publicText(finding.observation), 'finding-observation'));
       this.appendAnalysisEvidence(card, finding.references, true);
       if (finding.next_reply) {
@@ -1420,8 +1723,11 @@
       const review = this.questionnaireReviews.get(roleId);
       if (review === undefined) void this.loadQuestionnaireReview(roleId);
       if (!review) {
-        const status = element('p', review === false ? 'Не удалось загрузить рекомендации по анкете.'
-          : 'Подбираем ответы для следующей партии…', 'analysis-coverage');
+        const status = element(
+          'p',
+          review === false ? 'Не удалось загрузить рекомендации по анкете.' : 'Подбираем ответы для следующей партии…',
+          'analysis-coverage',
+        );
         status.setAttribute('role', 'status');
         section.append(status);
         return section;
@@ -1434,8 +1740,10 @@
         const current = element('div', null, 'strategy-original');
         current.append(element('dt', 'Выбранный ответ'), element('dd', item.chosen));
         const next = element('div', null, 'strategy-proposal');
-        next.append(element('dt', item.chosen === item.suggested ? 'Сохранить этот ответ' : 'В следующей партии'),
-          element('dd', item.suggested));
+        next.append(
+          element('dt', item.chosen === item.suggested ? 'Сохранить этот ответ' : 'В следующей партии'),
+          element('dd', item.suggested),
+        );
         const answers = element('dl');
         answers.append(current, next);
         entry.append(answers, element('p', item.reason));

@@ -13,6 +13,7 @@
 !frontend/app.js
 !frontend/style.css
 !frontend/assets/instruction.mp4
+!frontend/assets/intersect.png
 !frontend/assets/city/project-plan.webp
 !frontend/assets/fonts/*.woff2
 !frontend/assets/fonts/*-OFL.txt
