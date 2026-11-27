@@ -207,13 +207,21 @@
       this.busy = false;
       this.inputId = null;
       this.speechReveal = null;
+      this.demoMode = false;
+      this.hasHydrated = false;
+      this.entryAnimations = new WeakMap();
+      this.mockTimer = null;
+      this.mockScript = [];
+      this.mockIndex = 0;
 
       window.addEventListener('hashchange', () => this.route());
       document.querySelector('.skip-link').onclick = (event) => {
         event.preventDefault();
         $('main-info-col').focus();
       };
-      $('exit-btn').onclick = () => window.close();
+      $('exit-btn').onclick = () => this.navigate('start');
+      $('demo-start').onclick = (event) => { event.preventDefault(); this.startDemo(); };
+      $('demo-skip').onclick = () => this.finishMockDebate();
       $('role-settings').onsubmit = (event) => {
         event.preventDefault();
         const button = $('submit-settings-btn');
@@ -259,8 +267,8 @@
           : { type: 'vote', vote: data.get('vote') };
         void this.act(() => this.command(`/inputs/${pending.input_id}`, value));
       };
-      $('pause-btn').onclick = () => this.act(() => this.command(this.game.pause_state === 'none' ? '/pause' : '/continue'));
-      $('stop-btn').onclick = () => this.act(() => this.command('/cancel'));
+      $('pause-btn').onclick = () => this.demoMode ? this.toggleMockPause() : this.act(() => this.command(this.game.pause_state === 'none' ? '/pause' : '/continue'));
+      $('stop-btn').onclick = () => this.demoMode ? this.cancelMockDebate() : this.act(() => this.command('/cancel'));
       $('retry-result').onclick = () => this.act(() => this.command('/retry-result'));
       $('instruction-form').onsubmit = (event) => {
         event.preventDefault();
@@ -282,6 +290,238 @@
       };
       this.bindAutoHideScrollbars();
       void this.restore();
+    }
+
+    startDemo() {
+      // Keep any real, server-backed game ID intact while resetting the visible demo UI.
+      this.demoMode = true;
+      this.clear();
+      this.demoMode = true;
+      const roles = [
+        { id: 'city_administration', name: 'Администрация города', interest: 'Сохранить управляемость бюджета и обеспечить жителей питьевой водой на время реконструкции.' },
+        { id: 'industrial_complex', name: 'Промкомплекс', interest: 'Избежать остановки градообразующего предприятия и распределить финансовую нагрузку.' },
+        { id: 'region', name: 'Регион', interest: 'Согласовать софинансирование и добиться исполнимого графика работ.' },
+        { id: 'residents', name: 'Жители', interest: 'Получить гарантии чистой воды, прозрачные сроки и независимый контроль.' },
+        { id: 'eco_ngo', name: 'Эко-НКО', interest: 'Добиться открытых данных мониторинга и проверяемых экологических показателей.' },
+      ];
+      const seed = {
+        city_administration: { start_money: 5, comfort_money: 8, max_money: 10, position: 'conditional', strategy: 'Согласиться на взнос при наличии графика работ и гарантированного подвоза воды.' },
+        industrial_complex: { start_money: 90, comfort_money: 120, max_money: 150, position: 'conditional', strategy: 'Предложить поэтапное финансирование в обмен на реалистичный график и отсутствие полной остановки производства.' },
+        region: { start_money: 45, comfort_money: 65, max_money: 90, position: 'support', strategy: 'Закрыть остаток сметы при подтверждении вкладов города и предприятия.' },
+        residents: { start_money: 0, comfort_money: 0, max_money: 0, position: 'support', strategy: 'Поддержать проект только при публикации сроков, замеров и плана водоснабжения.' },
+        eco_ngo: { start_money: 0, comfort_money: 0, max_money: 0, position: 'conditional', strategy: 'Поддержать соглашение при независимом мониторинге и открытом доступе к показаниям датчиков.' },
+      };
+      const limits = { city_administration: 30, industrial_complex: 180, region: 90, residents: 0, eco_ngo: 0 };
+      const questionnaires = Object.fromEntries(roles.map((role) => [role.id, {
+        fields: [
+          { id: 'start_money', label: 'Первое предложение по взносу', required: true, number_range: { minimum: 0, maximum: limits[role.id], unit: 'млн ₽' }, options: [] },
+          { id: 'comfort_money', label: 'Желаемый взнос', required: true, number_range: { minimum: 0, maximum: limits[role.id], unit: 'млн ₽' }, options: [] },
+          { id: 'max_money', label: 'Потолок взноса', required: true, number_range: { minimum: 0, maximum: limits[role.id], unit: 'млн ₽' }, options: [] },
+          { id: 'position', label: 'Позиция в переговорах', required: true, options: [
+            { value: 'support', label: 'Поддержать соглашение' },
+            { value: 'conditional', label: 'Поддержать при условиях' },
+            { value: 'oppose', label: 'Выступить против' },
+          ] },
+          { id: 'strategy', label: 'Стратегия и дополнительные условия', required: false, options: [], hint: 'Коротко опишите приоритеты стороны и условия компромисса.' },
+        ],
+      }]));
+      const gameId = `demo-city-${Date.now()}`;
+      const snapshot = {
+        game_id: gameId,
+        last_event_id: 0,
+        status: 'draft',
+        phase: 'positions',
+        pause_state: 'none',
+        current_role_id: null,
+        pending_input: null,
+        available_actions: [],
+        messages: [],
+        scenario: {
+          roles,
+          questionnaires,
+          role_settings_schema: Object.fromEntries(roles.map((role) => [role.id, { pledged_rub_max: limits[role.id] * 1000000 }])),
+        },
+        settings: {
+          setup_mode: 'manual',
+          roles: roles.map((role) => ({ role_id: role.id, control_mode: 'ai', answers: { ...seed[role.id] } })),
+        },
+        protocol: null,
+        forecast: null,
+        vote_summary: null,
+        protocol_status: null,
+        result: null,
+      };
+      this.mockSeed = seed;
+      this.mockRoles = roles;
+      this.mockScript = [
+        { role_id: 'city_administration', phase: 'positions', content: 'Город готов выделить до 10 млн ₽, но только при включении подвоза питьевой воды и поэтапном графике реконструкции.' },
+        { role_id: 'industrial_complex', phase: 'positions', content: 'Предприятие не может одномоментно принять на себя всю смету. Предлагаем начать с 90 млн ₽ и закрепить дальнейшие платежи за контрольными точками.' },
+        { role_id: 'residents', phase: 'positions', content: 'Для жителей важны не только суммы. Нужны понятные сроки, регулярные замеры качества воды и публичный отчёт о каждом этапе.' },
+        { role_id: 'eco_ngo', phase: 'negotiation', content: 'Мы готовы организовать независимый мониторинг. Показания датчиков и результаты лабораторных проб должны публиковаться в открытом доступе.' },
+        { role_id: 'region', phase: 'negotiation', content: 'Регион может увеличить софинансирование до 65 млн ₽ при подтверждении вкладов остальных участников и едином календарном плане.' },
+        { role_id: 'industrial_complex', phase: 'amendments', content: 'Согласны увеличить вклад до 120 млн ₽. Просим зафиксировать поэтапный ввод объектов, чтобы не останавливать производство.' },
+        { role_id: 'city_administration', phase: 'amendments', content: 'Город подтверждает 10 млн ₽ и берёт на себя организацию подвоза воды. Отчёт о выполнении графика будет ежеквартальным.' },
+        { role_id: 'residents', phase: 'voting', content: 'При независимом контроле, открытых данных и гарантиях подвоза воды жители поддерживают предложенный протокол.' },
+      ];
+      $('demo-badge').hidden = false;
+      this.updateHeader('settings');
+      $('demo-progress').hidden = true;
+      $('demo-meter').value = 0;
+      $('demo-progress-count').textContent = `0 / ${this.mockScript.length}`;
+      history.replaceState(null, '', '#settings');
+      this.apply(snapshot, true);
+      $('main-info-col').scrollTop = 0;
+    }
+
+    mockDefaults(roleId) {
+      return { ...(this.mockSeed?.[roleId] || {}) };
+    }
+
+    startMockDebate() {
+      clearTimeout(this.mockTimer);
+      this.finishSpeechReveal();
+      this.messages.clear();
+      this.rounds.clear();
+      $('debate-feed').replaceChildren();
+      $('empty-journal').hidden = false;
+      this.mockIndex = 0;
+      this.game.status = 'running';
+      this.game.phase = 'positions';
+      this.game.pause_state = 'none';
+      this.game.current_role_id = this.mockScript[0]?.role_id || null;
+      this.game.pending_input = null;
+      this.game.available_actions = ['pause', 'cancel'];
+      this.game.messages = [];
+      this.game.settings.setup_mode = 'automatic';
+      this.game.settings.roles = this.roles.map((role) => ({ role_id: role.id, control_mode: 'ai' }));
+      this.game.result = null;
+      this.game.protocol = null;
+      this.game.forecast = null;
+      this.game.vote_summary = null;
+      this.game.last_event_id += 1;
+      $('demo-progress').hidden = false;
+      $('demo-meter').max = this.mockScript.length;
+      $('demo-meter').value = 0;
+      $('demo-progress-count').textContent = `0 / ${this.mockScript.length}`;
+      this.navigate('debate');
+      this.renderDebate();
+      this.advanceMockDebate();
+    }
+
+    advanceMockDebate() {
+      if (!this.demoMode || this.game?.status !== 'running' || this.game.pause_state === 'paused') return;
+      const entry = this.mockScript[this.mockIndex];
+      if (!entry) {
+        this.finishMockDebate();
+        return;
+      }
+      this.game.phase = entry.phase;
+      this.game.current_role_id = entry.role_id;
+      const message = {
+        message_id: `demo-message-${this.mockIndex + 1}`,
+        role_id: entry.role_id,
+        phase: entry.phase,
+        content: entry.content,
+        skipped: false,
+      };
+      this.game.messages.push(message);
+      this.game.last_event_id += 1;
+      this.append(message, { animationDelay: 40, reveal: true, follow: true });
+      this.mockIndex += 1;
+      $('demo-meter').value = this.mockIndex;
+      $('demo-progress-count').textContent = `${this.mockIndex} / ${this.mockScript.length}`;
+      this.renderDebate();
+      this.mockTimer = setTimeout(() => this.advanceMockDebate(), 1650);
+    }
+
+    toggleMockPause() {
+      if (!this.demoMode || this.game?.status !== 'running') return;
+      if (this.game.pause_state === 'paused') {
+        this.game.pause_state = 'none';
+        this.game.available_actions = ['pause', 'cancel'];
+        this.renderDebate();
+        this.advanceMockDebate();
+      } else {
+        clearTimeout(this.mockTimer);
+        this.finishSpeechReveal();
+        this.game.pause_state = 'paused';
+        this.game.available_actions = ['continue', 'cancel'];
+        this.renderDebate();
+      }
+    }
+
+    cancelMockDebate() {
+      if (!this.demoMode || !this.game) return;
+      clearTimeout(this.mockTimer);
+      this.finishSpeechReveal();
+      this.game.status = 'cancelled';
+      this.game.current_role_id = null;
+      this.game.available_actions = [];
+      this.game.last_event_id += 1;
+      this.apply(this.game);
+      this.navigate('final');
+      $('demo-progress').hidden = true;
+    }
+
+    finishMockDebate() {
+      if (!this.demoMode || !this.game || this.game.status === 'completed') return;
+      clearTimeout(this.mockTimer);
+      this.finishSpeechReveal();
+      this.mockIndex = this.mockScript.length;
+      for (let index = this.game.messages.length; index < this.mockScript.length; index += 1) {
+        const entry = this.mockScript[index];
+        const message = {
+          message_id: `demo-message-${index + 1}`,
+          role_id: entry.role_id,
+          phase: entry.phase,
+          content: entry.content,
+          skipped: false,
+        };
+        this.game.messages.push(message);
+        this.game.last_event_id += 1;
+        this.append(message, { animationDelay: 30, reveal: false });
+      }
+      this.game.status = 'completed';
+      this.game.phase = 'calculating_result';
+      this.game.pause_state = 'none';
+      this.game.current_role_id = null;
+      this.game.available_actions = [];
+      this.game.protocol_status = 'accepted';
+      this.game.protocol = {
+        version: 1,
+        items: [
+          { item_id: 'guilt', title: 'Ответственность за аварию', value: 'shared', funding: [] },
+          { item_id: 'schedule', title: 'График реконструкции', value: 'Поэтапный ввод в течение 3 лет', funding: [] },
+          { item_id: 'monitoring', title: 'Экологический контроль', value: 'Независимые замеры и открытая публикация данных', funding: [] },
+          { item_id: 'water', title: 'Подвоз питьевой воды', value: 'На период работ за счёт города', funding: [] },
+          { item_id: 'contribution', title: 'Распределение взносов', value: null, funding: [
+            { role_id: 'city_administration', amount_rub: 10000000 },
+            { role_id: 'industrial_complex', amount_rub: 120000000 },
+            { role_id: 'region', amount_rub: 65000000 },
+          ] },
+        ],
+      };
+      this.game.forecast = null;
+      this.game.vote_summary = {
+        for: 5, against: 0, abstain: 0,
+        votes: this.roles.map((role) => ({ role_id: role.id, vote: 'for' })),
+      };
+      this.game.result = {
+        outcome_title: 'Компромисс',
+        image_url: 'assets/demo-river.jpg',
+        period_months: 120,
+        herald_text: 'Стороны согласовали поэтапную реконструкцию очистных сооружений и распределили финансирование. Город организовал подвоз питьевой воды на время работ, а предприятие и регион закрепили свои взносы в общем протоколе.\n\nНезависимые замеры качества воды публикуются в открытом доступе. Темпы восстановления реки остаются неоднородными, однако регулярный контроль и единый график позволили снизить число аварийных сбросов и вернуть жителям возможность проверять исполнение договорённостей.\n\nЧерез десять лет очистные работают стабильнее, набережная постепенно возвращается к городской жизни, а доверие к переговорам сохраняется благодаря публичной отчётности.',
+        indicators: [
+          { label: 'Состояние реки', final_value: 'Улучшение' },
+          { label: 'Работа очистных', final_value: 'Стабильная, поэтапная модернизация' },
+          { label: 'Открытость данных', final_value: 'Регулярные публичные замеры' },
+          { label: 'Доверие жителей', final_value: 'Постепенно восстановлено' },
+        ],
+      };
+      this.game.last_event_id += 1;
+      this.apply(this.game);
+      this.navigate('final');
+      $('demo-progress').hidden = true;
     }
 
     bindAutoHideScrollbars() {
@@ -359,15 +599,17 @@
     clear() {
       clearTimeout(this.pollTimer);
       this.finishSpeechReveal();
-      const id = this.game?.game_id || localStorage.getItem(savedGame);
-      if (id) localStorage.removeItem(draftKey(id));
-      if (id) {
+      const activeId = this.game?.game_id;
+      const id = activeId || (!this.demoMode ? localStorage.getItem(savedGame) : null);
+      const disposableId = id && (!this.demoMode || id.startsWith('demo-city-')) ? id : null;
+      if (disposableId) localStorage.removeItem(draftKey(disposableId));
+      if (disposableId) {
         try {
-          sessionStorage.removeItem(analysisKey(id));
-          sessionStorage.removeItem(analysisRoleKey(id));
+          sessionStorage.removeItem(analysisKey(disposableId));
+          sessionStorage.removeItem(analysisRoleKey(disposableId));
         } catch { /* Analysis can run with storage disabled. */ }
       }
-      localStorage.removeItem(savedGame);
+      if (!this.demoMode) localStorage.removeItem(savedGame);
       this.game = this.draft = this.inputId = null;
       this.pollRefresh = false;
       this.cursor = 0;
@@ -400,22 +642,30 @@
       this.notice('game-error');
       this.notice('setup-mode');
       this.notice('setup-auto-error');
+      $('demo-badge').hidden = true;
+      this.updateHeader(this.currentScreen || 'start');
+      $('demo-progress').hidden = true;
+      clearTimeout(this.mockTimer);
+      this.demoMode = false;
     }
 
     async restore() {
-      if (window.location.hash === '#instruction') this.screen('instruction');
-      const gameId = localStorage.getItem(savedGame);
-      if (gameId) {
-        this.restoring = true;
-        try {
+      this.restoring = true;
+      try {
+        const gameId = localStorage.getItem(savedGame);
+        if (gameId) {
           this.apply(await api(`/${gameId}`), true);
-        } catch (error) {
-          this.handleError(error);
-        } finally {
+        } else {
           this.restoring = false;
+          this.route();
         }
-      } else {
-        this.route();
+      } catch (error) {
+        this.handleError(error);
+      } finally {
+        this.restoring = false;
+        this.hasHydrated = true;
+        document.documentElement.classList.add('app-ready');
+        this.updateHeader(this.currentScreen || 'start');
       }
     }
 
@@ -461,6 +711,7 @@
     screen(name, page = name) {
       const previous = this.currentPage;
       const previousScreen = this.currentScreen;
+      const changed = previousScreen !== name || previous !== page;
       this.currentScreen = name;
       this.currentPage = page;
       if (name !== 'debate') this.finishSpeechReveal();
@@ -474,16 +725,28 @@
       if (name !== 'settings' && $('auto-settings-dialog').open) $('auto-settings-dialog').close('cancel');
 
       document.querySelector('.screen-frame').dataset.currentScreen = name;
+      document.documentElement.dataset.screen = name;
       for (const view of document.querySelectorAll('.screen-view')) {
         const match = view.dataset.screenView === name;
         view.hidden = !match;
         view.classList.toggle('active', match);
+        if (match && changed && this.hasHydrated && !this.restoring) this.animateEntry(view);
+        else if (!match) {
+          this.entryAnimations.delete(view);
+          view.classList.remove('view-entering');
+        }
       }
       for (const menu of document.querySelectorAll('.menu-view')) {
         const match = menu.dataset.menuView === name;
         menu.hidden = !match;
         menu.classList.toggle('active', match);
+        if (match && changed && this.hasHydrated && !this.restoring) this.animateEntry(menu);
+        else if (!match) {
+          this.entryAnimations.delete(menu);
+          menu.classList.remove('view-entering');
+        }
       }
+      this.updateHeader(name);
 
       const video = $('instruction-video');
       if (name === 'instruction') video.play().catch(() => {});
@@ -506,13 +769,13 @@
         const labels = {
           settings: 'К АНКЕТАМ',
           debate: 'К ДЕБАТАМ',
-          final: 'К РЕЗУЛЬТАТУ',
+          final: 'К ИГРЕ',
         };
         link.textContent = this.game ? labels[stage] : 'ИГРАТЬ';
       }
       if (name === 'assistant') this.resumeAnalysis();
 
-      if (previousScreen !== name || previous !== page) {
+      if (changed) {
         $('main-info-col').scrollTop = 0;
         window.scrollTo(0, 0);
         if (previous) {
@@ -525,12 +788,56 @@
       }
     }
 
+    updateHeader(name) {
+      const labels = {
+        start: 'ИНТЕРАКТИВНЫЙ СЦЕНАРИЙ',
+        instruction: 'ПРАВИЛА И КОНТЕКСТ',
+        settings: 'НАСТРОЙКА ПОЗИЦИЙ',
+        debate: 'ПЕРЕГОВОРЫ В РЕАЛЬНОМ ВРЕМЕНИ',
+        final: 'ПРОГНОЗ ПОСЛЕДСТВИЙ',
+        assistant: 'АНАЛИЗ ПЕРЕГОВОРОВ',
+      };
+      const stage = $('header-stage');
+      if (stage) stage.textContent = labels[name] || labels.start;
+      const header = document.querySelector('.site-header');
+      if (header) {
+        header.dataset.screen = name;
+        header.dataset.mode = this.demoMode ? 'demo' : (this.game ? 'session' : 'intro');
+      }
+    }
+
+    animateEntry(node) {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      node.classList.remove('view-entering');
+      const token = {};
+      this.entryAnimations.set(node, token);
+      const finish = (event) => {
+        if (event && event.target !== node) return;
+        if (this.entryAnimations.get(node) !== token) {
+          node.removeEventListener('animationend', finish);
+          return;
+        }
+        this.entryAnimations.delete(node);
+        node.classList.remove('view-entering');
+        node.removeEventListener('animationend', finish);
+      };
+      node.addEventListener('animationend', finish);
+      requestAnimationFrame(() => {
+        if (this.entryAnimations.get(node) === token && node.isConnected && !node.hidden) {
+          node.classList.add('view-entering');
+        } else {
+          finish();
+        }
+      });
+      window.setTimeout(() => finish(), 1100);
+    }
+
     apply(snapshot, recover = false) {
       if (!recover && this.game?.game_id !== snapshot.game_id) return;
       if (!recover && snapshot.last_event_id < this.game.last_event_id) return;
       const previous = this.game;
       this.game = snapshot;
-      localStorage.setItem(savedGame, snapshot.game_id);
+      if (!this.demoMode) localStorage.setItem(savedGame, snapshot.game_id);
       if (recover) this.cursor = snapshot.last_event_id;
       for (const message of snapshot.messages) this.append(message);
 
@@ -588,6 +895,15 @@
 
     async fillDefaults(roleId = this.selectedRole) {
       if (this.game?.status !== 'draft' || !roleId) return;
+      if (this.demoMode) {
+        this.draft.answers[roleId] = this.mockDefaults(roleId);
+        this.draft.mode = 'manual';
+        this.draft.usedDefaults = true;
+        this.saveDraft();
+        this.selectRole(roleId);
+        this.notice('setup-mode', 'Тестовые ответы применены. Их можно изменить вручную.');
+        return;
+      }
       const id = this.game.game_id;
       const button = $('roles-nav').querySelector(`.role-auto-btn[data-auto-role="${roleId}"]`);
       await this.act(async () => {
@@ -983,6 +1299,11 @@
           this.settingsError(roleId, missing.id, message);
           return;
         }
+      }
+      if (this.demoMode) {
+        this.saveDraft();
+        this.startMockDebate();
+        return;
       }
       const payload = !this.questionnaires
         ? { roles: this.draft }
@@ -1486,6 +1807,25 @@
     async requestAnalysis() {
       const game = this.game;
       const roleId = $('analysis-role').value;
+      if (this.demoMode) {
+        const messages = this.analysisMessages(roleId);
+        if (!messages.length) return;
+        const first = messages[0];
+        const last = messages.at(-1);
+        this.analysisResults.set(roleId, {
+          observation: roleId === 'residents'
+            ? 'Сторона обозначила общественный интерес и связала поддержку протокола с проверяемыми гарантиями. Это помогло перевести обсуждение от общих требований к конкретным условиям.'
+            : 'Позиция стороны была понятной, а уступка по финансированию помогла приблизить соглашение. Сильнее всего сработала связка конкретного взноса и встречного обязательства.',
+          paragraph: 'Демо-разбор реплик выбранной стороны.',
+          references: [
+            { message_id: first.message_id, quote: first.content },
+            ...(last.message_id !== first.message_id ? [{ message_id: last.message_id, quote: last.content }] : []),
+          ],
+        });
+        this.showAnalysis();
+        $('analysis-result-title')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+        return;
+      }
       if (game?.status !== 'completed' || !roleId || this.analysisRequest || this.analysisFailures.has(roleId)
           || !this.analysisMessages(roleId).length) return;
       let previous = this.analysisResults.get(roleId);
