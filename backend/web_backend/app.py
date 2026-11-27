@@ -57,6 +57,7 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
     embedding_url = os.getenv("CITY_N_EMBEDDING_BASE_URL", "") if embedding_base_url is None else embedding_base_url
     embedding_key = os.getenv("CITY_N_EMBEDDING_API_KEY", "") if embedding_api_key is None else embedding_api_key
     options = {**CONFIG["game"], **(game_options or {})}
+    options["model_request_lock"] = asyncio.Lock()
     interactive = InteractiveGames(runs, factory, options, images)
     jobs: dict[str, asyncio.Task] = {}
     unsaved_results: dict[str, dict] = {}
@@ -118,6 +119,7 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
             engine.players = game_profiles(strategies, factory)
             engine.settings = game_settings()
             engine.rag_config = app.state.rag
+            engine.model_request_lock = options["model_request_lock"]
             for key in CONFIG["game"]:
                 setattr(engine, key, options[key])
             result = await engine.run_game(store)

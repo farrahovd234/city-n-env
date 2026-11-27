@@ -52,6 +52,14 @@ def project_funding(state: dict, cost: float) -> tuple[float, float]:
     return collected, max(0.0, cost - collected)
 
 
+def _demand_is_met(state, target, demand_type, lever_id, value):
+    if demand_type == "pledge":
+        actual = state["players"][target]["contribution"]
+        return actual is not None and actual >= value
+    actual = state["levers"][lever_id]
+    return actual <= value if type(actual) is int else actual == value
+
+
 def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
                          levers_config: list[dict], total_cost: float,
                          voting: bool = False) -> tuple[dict, dict]:
@@ -79,6 +87,7 @@ def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
 
     candidate = copy.deepcopy(state)
     applied = []
+    has_questionnaires = questionnaire_game(state)
     conditions = {lev["id"]: lev for lev in levers_config}
 
     def money(value, player):
@@ -147,12 +156,16 @@ def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
             raise ValueError("Ответить на требование может только его адресат")
         if response.decision == "accept":
             if demand["demand_type"] == "pledge":
-                if answer.own_contribution_millions is None or not math.isclose(
-                        candidate["players"][speaker]["contribution"], demand["value"], abs_tol=1e-6):
+                committed = candidate["players"][speaker]["contribution"] or 0
+                meets_request = (committed >= demand["value"] if has_questionnaires else
+                                 math.isclose(committed, demand["value"], abs_tol=1e-6))
+                if answer.own_contribution_millions is None or not meets_request:
                     raise ValueError("accept требует явно указать согласованный собственный взнос")
             elif (demand["lever_id"] not in answer.own_levers
                   or answer.own_levers[demand["lever_id"]] != demand["value"]):
                 raise ValueError("accept требует явно указать согласованное собственное условие")
+        if has_questionnaires and demand.get("response") == response.decision:
+            continue
         demand["response"] = response.decision
         applied.append({"kind": "DEMAND_RESPONSE", "demand_id": response.demand_id,
                         "decision": response.decision})
@@ -177,6 +190,17 @@ def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
         else:
             lev = condition_value(demand.lever_id, demand.value, recipient)
             value, title = demand.value, lev["title"]
+        if has_questionnaires:
+            met = _demand_is_met(candidate, recipient, demand.demand_type, demand.lever_id, value)
+            duplicate = any(
+                not item.get("withdrawn")
+                and (item["from"], item["target"], item["demand_type"], item["lever_id"],
+                     item["value"], item.get("counter_to"))
+                == (speaker, recipient, demand.demand_type, demand.lever_id, value, demand.counter_to)
+                for item in candidate["demands"])
+            # Встречное предложение сохраняет свою связь с аргументом другой стороны.
+            if duplicate or (met and demand.counter_to is None):
+                continue
         # counter_to ссылается на проверенный выше ответ адресата.
         seq = candidate.get("next_demand_id", 1)
         demand_id = f"d{seq}"
@@ -192,12 +216,8 @@ def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
     for demand in candidate["demands"]:
         if demand.get("withdrawn"):
             continue
-        if demand["demand_type"] == "pledge":
-            contribution = candidate["players"][demand["target"]]["contribution"]
-            met = contribution is not None and contribution >= demand["value"]
-        else:
-            actual = candidate["levers"][demand["lever_id"]]
-            met = actual <= demand["value"] if type(actual) is int else actual == demand["value"]
+        met = _demand_is_met(candidate, demand["target"], demand["demand_type"],
+                             demand["lever_id"], demand["value"])
         demand["status"] = "agreed" if met else "pending"
     return candidate, {"type": "ACTION", "message": answer.speech,
                        "target": target, "applied": applied, "status": "ok"}

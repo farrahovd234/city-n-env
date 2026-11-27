@@ -42,12 +42,16 @@ def public_speech(speech: str, speaker: str) -> str:
     return speech[:1].upper() + speech[1:]
 
 
+def speech_key(speech: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"\w+", speech.casefold()))
+
+
 def repeats_position(speech: str, earlier_speech: str) -> bool:
     """Определяет длинный дословный перенос чужой позиции в новую реплику."""
-    words = re.findall(r"\w+", speech.casefold())
+    words = speech_key(speech)
     if len(words) < 12:
         return False
-    earlier = re.findall(r"\w+", earlier_speech.casefold())
+    earlier = speech_key(earlier_speech)
     match = SequenceMatcher(None, words, earlier, autojunk=False).find_longest_match()
     return match.size >= 12 and (
         match.size * 2 >= len(words)
@@ -179,7 +183,8 @@ class PlayerTurnInput(TurnSchema):
 
 def player_turn_tool_schema(player_ids: dict, voting: bool = False,
                             levers_config: list[dict] | None = None, speaker: str | None = None,
-                            *, allow_abstain: bool = True) -> dict:
+                            *, allow_abstain: bool = True, decision_only: bool = False,
+                            discussion_options: tuple[str, ...] = ()) -> dict:
     """Транспортная схема; внутренний PlayerTurn проверяется после нормализации.
 
     Два варианта требования разделены для генератора. Игровые проверки остаются
@@ -195,6 +200,15 @@ def player_turn_tool_schema(player_ids: dict, voting: bool = False,
         definitions[title]["properties"]["target"] = {
             "type": "string", "enum": ids, "description": "Точный player_id адресата требования"}
     fields = schema["properties"]
+    if decision_only:
+        fields.pop("speech")
+        schema["required"].remove("speech")
+        if discussion_options:
+            fields["discussion"] = {"type": "string", "enum": list(discussion_options),
+                                    "description": "Код темы публичной реплики из списка текущего хода"}
+        for name in ("PledgeDemandInput", "ConditionDemandInput"):
+            definitions[name]["properties"].pop("text")
+            definitions[name]["required"].remove("text")
     if levers_config:
         own = [lever["id"] for lever in levers_config if speaker is None or lever["owner"] == speaker]
         other = [lever for lever in levers_config if lever["owner"] != speaker]
@@ -270,11 +284,19 @@ def decode_player_turn_input(payload: dict, levers_config: list[dict] | None = N
 
 def normalize_player_turn(payload: dict, player_ids: dict,
                           audit: list[dict] | None = None,
-                          levers_config: list[dict] | None = None) -> tuple[dict, list[dict]]:
+                          levers_config: list[dict] | None = None,
+                          *, decision_only: bool = False) -> tuple[dict, list[dict]]:
     """Только однозначные преобразования; суммы и смысл действий не исправляются."""
     if not isinstance(payload, dict):
         raise ValueError("PlayerTurn должен быть JSON-объектом")
     normalized = copy.deepcopy(payload)
+    if decision_only:
+        normalized["speech"] = "Ход переговоров."
+        for field, label in (("pledge_demands", "Требование о взносе"), ("condition_demands", "Требование об условии")):
+            if isinstance(normalized.get(field), list):
+                for demand in normalized[field]:
+                    if isinstance(demand, dict):
+                        demand["text"] = label
     changes = [] if audit is None else audit
     aliases = {}
     for player_id, name in player_ids.items():
@@ -339,13 +361,16 @@ def normalize_player_turn(payload: dict, player_ids: dict,
 
 
 def player_turn_examples(player_ids: dict, levers_config: list[dict], voting: bool,
-                         speaker: str | None = None, *, allow_abstain: bool = True) -> str:
+                         speaker: str | None = None, *, allow_abstain: bool = True,
+                         decision_only: bool = False) -> str:
     """Полные образцы синтаксиса, не готовые решения за участника."""
     empty = {"speech": "Публичная позиция участника.",
              "own_contribution": {"action": "unchanged", "amount_millions": 0},
              "own_conditions": [], "pledge_demands": [], "condition_demands": [],
              "responses": [], "withdrawn_demands": [],
              "addressed_to": "everyone", "vote": "none"}
+    if decision_only:
+        empty.pop("speech")
     if voting:
         empty["vote"] = "abstain" if allow_abstain else "against"
     examples = {"голосование" if voting else "без действий": empty}
@@ -365,4 +390,8 @@ def player_turn_examples(player_ids: dict, levers_config: list[dict], voting: bo
                     "value_json": "true", "text": "Просим включить условие протокола.", "counter_to": ""}]
                 examples["требование условия"] = condition
                 break
+    if decision_only:
+        for example in examples.values():
+            for demand in example["pledge_demands"] + example["condition_demands"]:
+                demand.pop("text")
     return "ПРИМЕРЫ ФОРМАТА (не копируй решения и суммы): " + json.dumps(examples, ensure_ascii=False)

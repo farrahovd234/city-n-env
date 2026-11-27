@@ -39,6 +39,74 @@ def format_money(amount) -> str:
     return "0 руб."
 
 
+def exact_money(rubles: float) -> str:
+    if abs(rubles) >= 1_000_000:
+        millions = f"{rubles / 1_000_000:.8f}".rstrip("0").rstrip(".")
+        return f"{millions.replace('.', ',')} млн ₽"
+    return f"{format_money(rubles).removesuffix(' руб.')} ₽"
+
+
+def render_turn_decision(applied: list[dict], before: dict) -> str:
+    """Формирует публичную реплику из действий, допущенных в протокол."""
+    demands = {demand["id"]: demand for demand in before["demands"]}
+    parts = []
+
+    def condition(action):
+        title, value, lever = action["title"], action["value"], action["lever_id"]
+        if type(value) is bool:
+            phrases = {
+                "water_supply": ("организовать подвоз питьевой воды", "исключить подвоз питьевой воды"),
+                "tariffs_freeze": ("заморозить тарифы на воду", "снять заморозку тарифов"),
+                "open_sensors": ("открыть данные датчиков", "закрыть данные датчиков"),
+                "tax_relief": ("предоставить льготы предприятию", "отказаться от льгот предприятию"),
+                "protest_moratorium": ("ввести мораторий на протесты и иски", "сохранить право на протесты и иски"),
+            }.get(lever)
+            if phrases:
+                return phrases[0] if value else phrases[1]
+            return f"{'включить' if value else 'выключить'} условие «{title}»"
+        if lever == "timeline":
+            return f"закрепить срок реконструкции в {value} мес"
+        if lever == "plant_mode":
+            return f"закрепить работу предприятия на {value} мощности"
+        if lever == "guilt":
+            responsibility = {"shared": "обоюдную ответственность", "holding": "ответственность холдинга",
+                              "city": "ответственность города"}
+            return f"закрепить {responsibility[value]} за аварию"
+        unit = " мес" if action["lever_id"] == "timeline" else ""
+        return f"установить для условия «{title}» значение {value}{unit}"
+
+    for action in applied:
+        kind = action["kind"]
+        if kind == "PLEDGE":
+            amount = action["contribution"]
+            if amount != (before["players"][action["player"]]["contribution"] or 0):
+                parts.append(f"Фиксируем свой взнос в проект в размере {exact_money(amount)}." if amount
+                             else "Отзываем свой взнос в проект.")
+        elif kind == "LEVER":
+            if action["value"] != before["levers"][action["lever_id"]]:
+                parts.append(f"Готовы {condition(action)}.")
+        elif kind == "DEMAND":
+            request = (f"внести {exact_money(action['value'])}"
+                       if action["demand_type"] == "pledge" else condition(action))
+            corroborated = next((other for other in before["demands"]
+                                 if other["from"] != action["from"] and not other.get("withdrawn")
+                                 and (other["target"], other["demand_type"], other["lever_id"], other["value"])
+                                 == (action["target"], action["demand_type"], action["lever_id"], action["value"])), None)
+            if corroborated:
+                parts.append(f"Поддерживаем просьбу стороны «{corroborated['from']}» "
+                             f"к стороне «{action['target']}» {request}.")
+            else:
+                parts.append(f"Просим сторону «{action['target']}» {request}.")
+        elif kind == "DEMAND_RESPONSE":
+            demand = demands[action["demand_id"]]
+            answer = {"accept": "Принимаем", "reject": "Отклоняем", "counter": "Предлагаем пересмотреть"}
+            parts.append(f"{answer[action['decision']]} требование стороны «{demand['from']}» «{demand['title']}».")
+        elif kind == "DEMAND_WITHDRAWN":
+            demand = demands[action["demand_id"]]
+            parts.append(f"Отзываем требование «{demand['title']}» к стороне «{demand['target']}».")
+    return " ".join(parts)
+
+
 def render_profile(profile, state, speaker):
     attrs = profile.get("attrs", {})
     base_budget = profile.get("money", 0)
@@ -207,8 +275,11 @@ def render_draft_treaty(state: dict, levers_config: list[dict], total_cost: floa
                 if desc:
                     lines.append(f"  * Содержание: {desc}.")
             else:
-                lines.append(f"* ❌ **[НЕ ВКЛЮЧЕНО] {lev['title']}**")
-                lines.append(f"  * Сторона @{owner} не предоставила гарантий по данному обязательству.")
+                if questionnaire_game(state):
+                    lines.append(f"* **{lev['title']}** — в проект не включено.")
+                else:
+                    lines.append(f"* ❌ **[НЕ ВКЛЮЧЕНО] {lev['title']}**")
+                    lines.append(f"  * Сторона @{owner} не предоставила гарантий по данному обязательству.")
         else:
             if lev.get('type') == 'int':
                 lines.append(f"* ⏱️ **[УТВЕРЖДЕНО] {lev['title']}:** {val} мес.")
@@ -261,7 +332,10 @@ def render_voter_checklist(speaker: str, profile: dict, state: dict, levers_conf
         val = current_levers.get(lev["id"], lev.get("default"))
         l_type = lev.get("type", "bool")
         if l_type == "bool":
-            val_str = "УТВЕРЖДЕНО ✅" if val is True else "НЕ ПРИНЯТО ❌"
+            if limit is None:
+                val_str = "УТВЕРЖДЕНО ✅" if val is True else "НЕ ПРИНЯТО ❌"
+            else:
+                val_str = "включено в проект" if val else "в проект не включено"
         elif l_type == "int":
             val_str = f"УТВЕРЖДЕНО ({val} мес.) ✅" if val else "НЕ ПРИНЯТО ❌"
         elif l_type == "str":
