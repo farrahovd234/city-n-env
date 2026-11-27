@@ -31,6 +31,27 @@ def is_owner(owner: str, speaker: str) -> bool:
     return False
 
 
+def contribution_limit(player: dict) -> float | None:
+    cap = player.get("contribution_cap")
+    if cap is None:
+        return None
+    return min(cap, max(0, player["max_budget"] - player["spent_on_levers"]))
+
+
+def questionnaire_game(state: dict) -> bool:
+    return any("contribution_cap" in player for player in state["players"].values())
+
+
+def project_funding(state: dict, cost: float) -> tuple[float, float]:
+    pledges = [player["contribution"] or 0.0 for player in state["players"].values()]
+    if questionnaire_game(state):
+        collected = sum(round(amount * 100) for amount in pledges)
+        deficit = max(0, round(cost * 100) - collected)
+        return collected / 100, deficit / 100
+    collected = sum(pledges)
+    return collected, max(0.0, cost - collected)
+
+
 def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
                          levers_config: list[dict], total_cost: float,
                          voting: bool = False) -> tuple[dict, dict]:
@@ -96,12 +117,16 @@ def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
         applied.append({"kind": "LEVER", "lever_id": lever_id,
                         "title": lev["title"], "value": value})
     # Пересчитываем расходы по всем включённым собственным условиям.
-    candidate["players"][speaker]["spent_on_levers"] = sum(
+    player = candidate["players"][speaker]
+    player["spent_on_levers"] = sum(
         float(lev.get("cost", 0)) for lev in levers_config
         if is_owner(lev["owner"], speaker)
         and (candidate["levers"].get(lev["id"]) is True
              or (type(candidate["levers"].get(lev["id"])) is int
                  and candidate["levers"][lev["id"]] > 0)))
+    limit = contribution_limit(player)
+    if limit is not None and (player["contribution"] or 0) > limit:
+        raise ValueError(f"Взнос {speaker} превышает допустимый потолок {limit / 1_000_000:g} млн ₽.")
 
     existing = {d["id"]: d for d in candidate["demands"]}
     response_ids = [r.demand_id for r in answer.responses]

@@ -1,0 +1,23 @@
+services:
+  game:
+    build:
+      context: .
+      target: game
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      CITY_N_RUNS_DIR: /var/lib/city-n/runs
+    ports:
+      - "127.0.0.1:${CITY_N_HTTP_PORT:-8000}:8000"
+    volumes:
+      - game-data:/var/lib/city-n
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/scenario', timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  game-data:

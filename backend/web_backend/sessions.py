@@ -17,7 +17,9 @@ from fastapi import HTTPException
 from consequences_model.catalog import MODEL_VERSION
 from negotiation_game.engine import NegotiationEngine
 
-from .game_contract import (SPEECH_PHASES, default_settings, make_protocol, projection, scenario_contract, votes)
+from .game_contract import (SPEECH_PHASES, default_settings, make_protocol, projection, questionnaire_levers,
+                            scenario_contract, votes)
+from .questionnaires import MILLION, QUESTIONNAIRES, vote_objections
 from .scenario import game_profiles, game_settings
 
 
@@ -96,6 +98,8 @@ class GameSession:
         state = self.state
         actions = []
         if state["status"] == "draft":
+            if "questionnaires" in state["scenario"]:
+                state = {**state, "scenario": {**state["scenario"], "questionnaires": QUESTIONNAIRES}}
             actions = ["settings", "cancel"]
             if self.record.get("settings_saved"):
                 actions.append("start")
@@ -103,7 +107,7 @@ class GameSession:
             actions = ["cancel", "pause" if state["pause_state"] == "none" else "continue"]
             if state["pending_input"] and state["pause_state"] == "none":
                 actions.append("submit_input")
-            if state["phase"] in SPEECH_PHASES:
+            if state["phase"] in SPEECH_PHASES and not self.uses_questionnaires:
                 actions.append("add_instruction")
         elif state["status"] == "failed" and (state["error"] or {}).get("code") == "RESULT_FAILED":
             actions = ["retry_result"]
@@ -115,6 +119,14 @@ class GameSession:
             except Exception:
                 logger.warning("Не удалось пересчитать сохранённую партию %s", state["game_id"], exc_info=True)
         return {**state, "result": result, "available_actions": actions}
+
+    @property
+    def uses_questionnaires(self):
+        return bool(self.state["settings"].get("setup_mode"))
+
+    def vote_objections(self, role_id, state):
+        role = next(role for role in self.state["settings"]["roles"] if role["role_id"] == role_id)
+        return vote_objections(role_id, role["answers"], state)
 
     def save(self):
         self.store.save(self.record)
@@ -198,11 +210,16 @@ class GameSession:
             return
         role_by_name = {role["name"]: role["id"] for role in self.state["scenario"]["roles"]}
         for row in history[self.history_offset:]:
-            if not row["command"]:
+            content = row["command"]
+            if not content and self.uses_questionnaires:
+                content = row["action"]["message"]
+            if not content:
                 continue
             turn = str(row["turn"])
             message = {"message_id": turn, "turn_id": turn, "role_id": role_by_name[row["speaker"]],
-                       "phase": phase, "content": row["command"]}
+                       "phase": phase, "content": content}
+            if not row["command"]:
+                message["skipped"] = True
             self.state["messages"].append(message)
             self.emit("message.created", message)
         self.history_offset = len(history)
@@ -251,6 +268,9 @@ class GameSession:
                                        factory, human_roles={role["role_id"] for role in roles
                                                              if role["control_mode"] == "human"})
         engine.settings = game_settings()
+        if self.uses_questionnaires:
+            engine.settings["levers"] = questionnaire_levers()
+            roles = [{**role, "contribution_cap_rub": role["answers"].get("max_money", 0) * MILLION} for role in roles]
         engine.initial_roles, engine.session, engine.rag_config = roles, self, rag
         raw = await engine.run_game()
         if raw["status"] != "completed":
