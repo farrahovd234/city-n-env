@@ -212,7 +212,7 @@
       "start_money": 120,
       "comfort_money": 140,
       "max_money": 180,
-      "plant_mode": "100%",
+      "plant_mode": "70%",
       "timeline": 36,
       "tax_relief": true,
       "protest_moratorium": false,

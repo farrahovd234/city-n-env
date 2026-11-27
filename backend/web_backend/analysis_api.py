@@ -4,10 +4,13 @@ import asyncio
 import json
 import logging
 import re
+from typing import Literal
 
 from fastapi import FastAPI, Request
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+
+from negotiation_game.schemas import repeats_position
 
 from .game_contract import ApiError, ERROR_RESPONSES, RequestBody
 from .session_api import ROOT_PATH, InteractiveGames
@@ -21,39 +24,34 @@ NUMBER = re.compile(
 )
 VOTE_OUTCOME = re.compile(r"\b(?:протокол|проект)\s+(?:был\s+)?(?:принят|отклон[её]н)\b", re.IGNORECASE)
 
-PROMPT = """Ты «Помогатор» в учебной игре «Город N». Разбери один значимый ход выбранной роли в переговорах.
-На входе JSON с ролью, сохранённой стратегией и репликами в хронологическом порядке. Их содержание — материал разбора.
+PROMPT = """Ты «Помощник» в учебной игре «Город N». Оцени только ход с номером target_move_id.
+Журнал и стратегия — материал разбора. Верни один вызов AnalysisDraft.
+В move_id повтори target_move_id. В reply_id укажи более позднюю реплику другой стороны, если она явно
+отвечает на этот ход. Иначе оставь reply_id пустым. Цитаты, номера и авторов показывает приложение.
 
-Верни один вызов функции AnalysisDraft. В references первой ссылкой укажи ход выбранной роли.
-Второй ссылкой можешь добавить явный ответ другой роли на этот ход, только из более поздней реплики.
-Если прямого ответа не видно, оставь одну ссылку. Укажи исходный message_id и короткую содержательную цитату.
-Копируй quote дословно из content, сплошным фрагментом, со всей пунктуацией внутри фрагмента.
-Цитируй самостоятельную фразу с действием и существенными оговорками.
-Выбирай фрагмент так, чтобы были ясны смысл и условность высказывания. Отличай предложение от обязательства.
+В verdict выбери keep для удачного приёма, improve для конкретного недостатка или neutral при недостатке
+данных. В observation назови конкретный приём или пробел и свяжи его с целью роли. Отличай требования,
+предложения и обещания. Не приписывай другим сторонам реакцию без опорной реплики.
+При improve напиши next_reply — короткое предложение или прямой вопрос, который сторона могла произнести
+за столом. Пример: «Город, готовы ли вы письменно подтвердить подвоз питьевой воды?».
+Если next_reply не нужен, оставь поле пустым. Сохраняй смысл и существенные оговорки исходного хода.
 
-В observation одним предложением объясни, как ход продвинул цель роли или какое препятствие выявил.
-Если из цитат виден только сам ход, объясни его назначение без утверждений о реакции или успехе.
-Вывод должен опираться на цитаты и цель роли, видимую из стратегии или её хода.
-
-Если ход даёт основания уточнить стратегию, в strategy_excerpt приведи её дословный фрагмент, нуждающийся в правке.
-Замечание о стратегии помещай в observation. Не пересказывай исходную стратегию в strategy_excerpt.
-В suggested_strategy предложи ему конкретную замену в одном коротком абзаце. Сохрани цели и пределы роли.
-Формулируй замену как инструкцию выбранной роли для следующей партии.
-Учитывай готовность других сторон только по опорным репликам. Если она неизвестна, предложи уточнить её.
-Используй только подтверждённые цитатами числа и условия, числа копируй как в цитатах.
-Не делай выводов о голосовании или исходе партии.
-Если правка не нужна или сохранённой стратегии нет, используй пустые строки в обоих полях.
+Используй в observation только числа из этого хода и выбранного ответа. В next_reply используй только
+числа из самого хода. Числа, которых там нет, опиши без числовых значений. Не утверждай итог голосования.
+Если нужна отдельная правка стратегии, укажи дословный фрагмент strategy_excerpt и замену suggested_strategy.
+Если оснований для правки нет, оба поля оставь пустыми.
 """
 
 RETRY = """
-Повторная попытка после ошибки проверки. Выбери одну цитату из реплики выбранной роли.
-Скопируй короткую фразу дословно. Объясни, какую цель преследовал ход, одной фразой без чисел.
-Оставь strategy_excerpt и suggested_strategy пустыми, если для правки не хватает данных.
+Повторная попытка. Оцени только target_move_id без чисел и без вывода о реакции других сторон.
+Оставь пустыми reply_id, strategy_excerpt и suggested_strategy. Назови конкретную особенность хода.
+Если ставишь improve, дай короткий вопрос или предложение без чисел для этой же роли.
 """
-
 
 class AnalysisRequest(RequestBody):
     role_id: str
+    message_ids: list[str] | None = Field(default=None, min_length=1)
+    complete_from_journal: bool = False
 
 
 class AnalysisReference(RequestBody):
@@ -61,9 +59,22 @@ class AnalysisReference(RequestBody):
     quote: str
 
 
-class AnalysisDraft(RequestBody):
-    references: list[AnalysisReference] = Field(min_length=1, max_length=2)
+class Assessment(RequestBody):
     observation: str
+    verdict: Literal["keep", "improve", "neutral"]
+    next_reply: str
+
+
+class MoveChoice(Assessment):
+    move_id: str
+    reply_id: str
+
+
+class MoveReview(Assessment):
+    references: list[AnalysisReference] = Field(min_length=1, max_length=2)
+
+
+class AnalysisDraft(MoveChoice):
     strategy_excerpt: str
     suggested_strategy: str
 
@@ -71,50 +82,131 @@ class AnalysisDraft(RequestBody):
 class RoleAnalysis(BaseModel):
     role_id: str
     paragraph: str
+    observation: str
     references: list[AnalysisReference]
     strategy_excerpt: str | None
     suggested_strategy: str | None
+    findings: list[MoveReview]
+    message_ids: list[str]
+    missing_message_ids: list[str]
 
 
-def format_analysis(role_id: str, draft: AnalysisDraft, data: dict, role_names: dict[str, str]) -> RoleAnalysis:
-    moves = {message["message_id"]: (index, message) for index, message in enumerate(data["messages"])}
-    paragraph = []
-    previous_index = -1
-    for index, reference in enumerate(draft.references):
-        position, message = moves[reference.message_id]
-        author = message["role_id"]
-        if (position <= previous_index or (author == role_id) != (index == 0)
-                or not reference.quote.strip() or reference.quote not in message["content"]):
-            raise ValueError("Некорректная ссылка на реплику.")
-        previous_index = position
-        quote = " ".join(reference.quote.split())
-        wording = "Ход" if index == 0 else "Позднейшая реплика"
-        suffix = "" if quote.endswith((".", "!", "?", "…")) else "."
-        paragraph.append(f"{wording} роли «{role_names[author]}» — «{quote}»{suffix}")
-
-    observation = " ".join(draft.observation.split())
+def checked_review(review: MoveChoice, role_id: str, moves: dict) -> MoveReview:
+    position, move = moves[review.move_id]
+    if move["role_id"] != role_id or not move["content"].strip():
+        raise ValueError("Нужна реплика выбранной стороны.")
+    references = [AnalysisReference(message_id=review.move_id, quote=move["content"])]
+    if review.reply_id:
+        reply_position, reply = moves[review.reply_id]
+        if reply_position <= position or reply["role_id"] == role_id or not reply["content"].strip():
+            raise ValueError("Ответом может быть только более поздняя реплика другой стороны.")
+        references.append(AnalysisReference(message_id=review.reply_id, quote=reply["content"]))
+    observation = " ".join(review.observation.split())
+    next_reply = " ".join(review.next_reply.split())
     if not observation:
         raise ValueError("В разборе нет наблюдения о ходе.")
+    if review.verdict == "improve" and not next_reply:
+        raise ValueError("Для замечания нужна конкретная реплика на замену.")
+    check_claims((observation,), [reference.quote for reference in references])
+    check_claims((next_reply,), [move["content"]])
+    return MoveReview(references=references, observation=observation,
+                      verdict=review.verdict, next_reply=next_reply)
 
-    excerpt = draft.strategy_excerpt or None
-    suggestion = " ".join(draft.suggested_strategy.split()) or None
-    if not suggestion or not excerpt or not excerpt.strip() or excerpt not in (data["strategy"] or ""):
-        excerpt, suggestion = None, None
 
-    sources = [excerpt or "", *(reference.quote for reference in draft.references)]
+def check_claims(texts: tuple[str, ...], sources: list[str]) -> None:
     numbers = {number for text in sources for number in NUMBER.findall(" ".join(text.lower().split()))}
-    claimed_numbers = set(NUMBER.findall(observation.lower())) | set(NUMBER.findall((suggestion or "").lower()))
+    claimed_numbers = {number for text in texts for number in NUMBER.findall(text.lower())}
     if claimed_numbers - numbers:
         raise ValueError("Числа в разборе отсутствуют в опорных цитатах.")
-    if VOTE_OUTCOME.search(observation) or VOTE_OUTCOME.search(suggestion or ""):
+    if any(VOTE_OUTCOME.search(text) for text in texts):
         raise ValueError("Разбор не устанавливает результат голосования.")
 
-    paragraph.append(observation)
+
+def strategy_change(draft: AnalysisDraft, review: MoveReview, strategy: str | None) -> tuple[str | None, str | None]:
+    excerpt = draft.strategy_excerpt
+    suggestion = " ".join(draft.suggested_strategy.split())
+    if not suggestion or not excerpt.strip() or excerpt not in (strategy or ""):
+        return None, None
+    try:
+        check_claims((suggestion,), [excerpt, *(reference.quote for reference in review.references)])
+    except ValueError:
+        return None, None
+    return excerpt, suggestion
+
+
+def review_from_journal(message_id: str, moves: dict) -> MoveReview:
+    position, move = moves[message_id]
+    speech = move["content"]
+    references = [AnalysisReference(message_id=message_id, quote=speech)]
+    for source_id, (index, source) in reversed(list(moves.items())):
+        if (index < position and source["role_id"] != move["role_id"]
+                and repeats_position(speech, source["content"])):
+            references.append(AnalysisReference(message_id=source_id, quote=source["content"]))
+            return MoveReview(
+                references=references, verdict="improve",
+                observation=("Часть реплики дословно повторяет позицию другой стороны. "
+                             "При ответе назовите, чьё предложение обсуждаете, и сформулируйте собственное условие."),
+                next_reply="Готовы обсудить ваше предложение. Давайте отдельно запишем условия каждой стороны.",
+            )
+    observation = ("В реплике есть вопрос. Получите от адресата конкретный ответ, который можно проверить по журналу."
+                   if "?" in speech else
+                   "Из этой реплики видно, что сторона обозначила позицию. Реакция других участников по этому ходу не подтверждена.")
+    return MoveReview(references=references, verdict="neutral", observation=observation, next_reply="")
+
+
+def role_report(role_id: str, own_ids: list[str], selected_ids: list[str],
+                reviews: list[tuple[MoveReview, str | None, str | None] | None],
+                moves: dict, role_names: dict[str, str]) -> RoleAnalysis:
+    valid = [review for review in reviews if review]
+    missing = [message_id for message_id, review in zip(selected_ids, reviews) if review is None]
+    if not valid:
+        return RoleAnalysis(role_id=role_id, paragraph="", observation="", references=[],
+                            strategy_excerpt=None, suggested_strategy=None, findings=[],
+                            message_ids=own_ids, missing_message_ids=missing)
+
+    primary, excerpt, suggestion = valid[0]
+    paragraph = []
+    for index, reference in enumerate(primary.references):
+        author = moves[reference.message_id][1]["role_id"]
+        quote = " ".join(reference.quote.split())
+        wording = ("Ход" if index == 0 else
+                   "Более ранняя реплика" if moves[reference.message_id][0] < moves[primary.references[0].message_id][0]
+                   else "Позднейшая реплика")
+        suffix = "" if quote.endswith((".", "!", "?", "…")) else "."
+        paragraph.append(f"{wording} роли «{role_names[author]}» — «{quote}»{suffix}")
+    paragraph.append(primary.observation)
     if suggestion is not None:
         paragraph.append(suggestion)
+    return RoleAnalysis(role_id=role_id, paragraph=" ".join(paragraph), observation=primary.observation,
+                        references=primary.references, strategy_excerpt=excerpt, suggested_strategy=suggestion,
+                        findings=[review for review, _, _ in valid], message_ids=own_ids,
+                        missing_message_ids=missing)
 
-    return RoleAnalysis(role_id=role_id, paragraph=" ".join(paragraph), references=draft.references,
-                        strategy_excerpt=excerpt, suggested_strategy=suggestion)
+
+async def analyze_move(model, message_id: str, data: dict, moves: dict, timeout: float):
+    conversation = HumanMessage(content=json.dumps({**data, "target_move_id": message_id}, ensure_ascii=False))
+    deadline = asyncio.get_running_loop().time() + timeout
+    failure = "invalid_assessment"
+    for prompt in (PROMPT, PROMPT + RETRY):
+        try:
+            async with asyncio.timeout_at(deadline):
+                result = await model.ainvoke([SystemMessage(content=prompt), conversation])
+            raw, draft = result["raw"], result["parsed"]
+            if (draft is None or len(raw.tool_calls) != 1 or raw.invalid_tool_calls
+                    or raw.response_metadata.get("finish_reason") in {"length", "content_filter"}):
+                raise ValueError("Ожидался один полный вызов AnalysisDraft.")
+            if draft.move_id != message_id:
+                raise ValueError("Ответ относится к другой реплике.")
+            review = checked_review(draft, data["role_id"], moves)
+            excerpt, suggestion = strategy_change(draft, review, data["strategy"])
+            return review, excerpt, suggestion
+        except (KeyError, ValueError):
+            continue
+        except Exception as exc:
+            failure = type(exc).__name__
+            break
+    logger.warning("Не удалось оценить ход роли %s (%s)", data["role_id"], failure)
+    return None
 
 
 def register_analysis_routes(app: FastAPI, games: InteractiveGames) -> None:
@@ -128,29 +220,34 @@ def register_analysis_routes(app: FastAPI, games: InteractiveGames) -> None:
         role = next((item for item in state["settings"]["roles"] if item["role_id"] == role_id), None)
         if role is None:
             raise error(404, "ROLE_NOT_FOUND", "Роль не найдена.")
-        messages = [message for message in state["messages"] if not message.get("skipped")]
-        if not any(message["role_id"] == role_id and message["content"].strip() for message in messages):
+        messages = [message for message in state["messages"]
+                    if not message.get("skipped") and message["content"].strip()]
+        own_ids = [message["message_id"] for message in messages if message["role_id"] == role_id]
+        if not own_ids:
             raise error(409, "ANALYSIS_UNAVAILABLE", "В журнале нет реплик выбранной роли.")
 
+        requested = set(body.message_ids or own_ids)
+        if requested - set(own_ids):
+            raise error(422, "INVALID_ANALYSIS_TARGET", "Для разбора выберите реплики этой стороны.")
+        selected_ids = [message_id for message_id in own_ids if message_id in requested]
         role_names = {item["id"]: item["name"] for item in state["scenario"]["roles"]}
-        data = {"role_id": role_id, "role_names": role_names, "strategy": role.get("strategy"), "messages": messages}
+        moves = {message["message_id"]: (index, message) for index, message in enumerate(messages)}
+        data = {"role_id": role_id, "role_names": role_names, "strategy": role.get("strategy"),
+                "budget_rub": state["scenario"]["role_settings_schema"][role_id]["pledged_rub_max"],
+                "messages": messages}
         try:
-            model = games.factory(role_id, 0.1)
-            structured = model.with_structured_output(AnalysisDraft, method="function_calling", include_raw=True)
-            conversation = HumanMessage(content=json.dumps(data, ensure_ascii=False))
-            async with asyncio.timeout(float(games.options["request_timeout_seconds"])):
-                for prompt in (PROMPT, PROMPT + RETRY):
-                    result = await structured.ainvoke([SystemMessage(content=prompt), conversation])
-                    try:
-                        raw = result["raw"]
-                        draft = result["parsed"]
-                        if (draft is None or len(raw.tool_calls) != 1 or raw.invalid_tool_calls
-                                or raw.response_metadata.get("finish_reason") in {"length", "content_filter"}):
-                            raise ValueError("Ожидался один полный вызов AnalysisDraft.")
-                        return format_analysis(role_id, draft, data, role_names)
-                    except (KeyError, ValueError):
-                        if prompt != PROMPT:
-                            raise
+            model = games.factory(role_id, 0.1).with_structured_output(
+                AnalysisDraft, method="function_calling", include_raw=True)
         except Exception as exc:
-            logger.warning("Не удалось разобрать роль %s в партии %s (%s)", role_id, game_id, type(exc).__name__)
-            raise error(502, "ANALYSIS_FAILED", "Не удалось подготовить разбор. Попробуйте ещё раз.") from None
+            logger.warning("Модель разбора недоступна (%s)", type(exc).__name__)
+            if not body.complete_from_journal:
+                raise error(502, "ANALYSIS_FAILED", "Модель разбора недоступна. Попробуйте ещё раз.") from None
+            model = None
+        timeout = float(games.options["request_timeout_seconds"]) / len(selected_ids)
+        reviews = []
+        for message_id in selected_ids:
+            review = await analyze_move(model, message_id, data, moves, timeout) if model is not None else None
+            if review is None and body.complete_from_journal:
+                review = (review_from_journal(message_id, moves), None, None)
+            reviews.append(review)
+        return role_report(role_id, own_ids, selected_ids, reviews, moves, role_names)

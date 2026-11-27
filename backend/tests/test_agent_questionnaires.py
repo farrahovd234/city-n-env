@@ -12,7 +12,9 @@ from uuid import uuid4
 import httpx
 
 from test_web_api import PAUSE, fixture_model, tool_reply
+from negotiation_game.rules import project_funding
 from web_backend.app import create_app
+from web_backend.questionnaires import QUESTIONNAIRES, vote_objections
 
 
 ROOT = "/api/v1/games"
@@ -28,33 +30,106 @@ CUSTOM = "Предложите еженедельную сверку плана 
 
 
 class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
+    def test_funding_is_compared_in_kopecks(self):
+        amounts = [5_000_000.2, 175_000_006.4, 89_999_993.4]
+        state = {"players": {i: {"contribution": value, "contribution_cap": 180_000_000}
+                             for i, value in enumerate(amounts)}}
+        self.assertEqual(project_funding(state, 270_000_000), (270_000_000, 0))
+        state["players"][0]["contribution"] -= 0.01
+        self.assertEqual(project_funding(state, 270_000_000), (269_999_999.99, 0.01))
+
+    def test_holding_requires_relief_only_above_comfortable_pledge(self):
+        role = "industrial_holding"
+        answers = {**QUESTIONNAIRES[role]["defaults"], "plant_mode": "100%"}
+        state = {"player_ids": {role: "Холдинг"},
+                 "players": {"Холдинг": {"contribution": answers["comfort_money"] * 1_000_000}},
+                 "levers": {"timeline": 36, "plant_mode": "100%", "guilt": "shared", "tax_relief": False}}
+        self.assertEqual(vote_objections(role, answers, state), [])
+        state["players"]["Холдинг"]["contribution"] += 1
+        self.assertEqual(len(vote_objections(role, answers, state)), 1)
+        state["levers"]["tax_relief"] = True
+        self.assertEqual(vote_objections(role, answers, state), [])
+
+    async def test_manual_numeric_answers_work_between_presets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app(runs_dir=directory, images=False, embedding_base_url="")
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://city.test") as api,
+            ):
+                created = await api.post(ROOT, headers={"Idempotency-Key": uuid4().hex})
+                path = created.headers["Location"]
+                questionnaires = created.json()["scenario"]["questionnaires"]
+                answers = {role: row["defaults"] for role, row in questionnaires.items()}
+                answers["city_administration"].update(comfort_money=17, max_money=27, timeline=32)
+                answers["industrial_holding"].update(start_money=137, timeline=32)
+                payload = {"mode": "manual", "answers": answers}
+                saved = await api.put(path + "/settings", json=payload)
+                self.assertEqual(saved.status_code, 200, saved.text)
+                city, holding = saved.json()["settings"]["roles"][:2]
+                self.assertEqual(city["answers"]["max_money"], 27)
+                self.assertIn("32 мес.", city["strategy"])
+                self.assertEqual(holding["conditions"]["timeline"], 32)
+                self.assertEqual(holding["pledged_rub"], 137_000_000)
+                answers["city_administration"].update(max_money=31, timeline=23)
+                rejected = await api.put(path + "/settings", json=payload)
+                self.assertEqual(rejected.status_code, 422, rejected.text)
+                self.assertEqual({error["path"][-1] for error in rejected.json()["field_errors"]}, {"max_money", "timeline"})
+
     async def test_automatic_answers_start_a_readonly_game(self):
         await self.play("automatic")
 
     async def test_manual_answers_set_owned_conditions_and_enforce_contribution_limits(self):
         await self.play("manual")
 
-    async def play(self, mode):
+    async def test_even_small_deficit_requires_five_votes_against(self):
+        await self.play("automatic", deficit_millions=0.05)
+
+    async def play(self, mode, *, deficit_millions=0):
         model_started, let_model_reply = asyncio.Event(), asyncio.Event()
         provider_prompts = {}
+        model_votes = []
+        repeated_city_position = ("Заморозка тарифов — наше условие, но гарантию питьевой воды не включаем, "
+                                  "чтобы сохранить все 30 млн на реконструкцию.")
 
         async def reply(request):
             body = json.loads(request.content)
             role = body["model"]
             provider_prompts.setdefault(role, []).extend(message["content"] for message in body["messages"])
-            voting = body["tools"][0]["function"]["parameters"]["properties"]["vote"]["enum"] != ["none"]
+            parameters = body["tools"][0]["function"]["parameters"]
+            properties = parameters["properties"]
+            voting = properties["vote"]["enum"] != ["none"]
+            if voting:
+                self.assertEqual(properties["vote"]["enum"], ["for", "against"])
+                model_votes.append(role)
+            if role == "city_residents" and not voting:
+                owned = parameters["$defs"]["ConditionInput"]["properties"]["lever_id"]["enum"]
+                self.assertEqual(owned, ["protest_moratorium"])
+                self.assertEqual(properties["own_conditions"]["maxItems"], 1)
             model_started.set()
             await let_model_reply.wait()
-            condition = {"city_administration": "water_supply", "environmental_ngo": "open_sensors"}.get(role)
+            condition = {"city_administration": "water_supply", "environmental_ngo": "open_sensors",
+                         "regional_government": "tax_relief"}.get(role)
             city_opening = role == "city_administration" and any(
                 "ИДЕТ ЭТАП 1:" in message["content"] for message in body["messages"])
+            bargaining = any("ЭТАП 2 ИЗ 3" in message["content"] for message in body["messages"])
+            correction = any("Ответ не применён." in message["content"] for message in body["messages"])
+            speech = ("Регион: стартовая позиция и требования. Предлагаю разделить ответственность (shared) "
+                      "и предоставить налоговые льготы (tax_relief: true)." if role == "regional_government"
+                      else f"Позиция стороны {role}.")
+            if bargaining and role in {"city_administration", "regional_government"} and not correction:
+                speech = repeated_city_position
+            own_conditions = [{"lever_id": condition,
+                               "value_json": "false" if city_opening and mode == "manual" else "true"}
+                              ] if condition and not voting else []
+            if role == "environmental_ngo":
+                own_conditions = own_conditions * 2
+            contribution = CONTRIBUTIONS[role] - deficit_millions if role == "industrial_holding" else CONTRIBUTIONS[role]
             return tool_reply({
-                "speech": f"Позиция стороны {role}.",
+                "speech": speech,
                 "own_contribution": {"action": "unchanged" if voting else "set",
-                                     "amount_millions": 0 if voting else 20 if city_opening else CONTRIBUTIONS[role]},
-                "own_conditions": [
-                    {"lever_id": condition, "value_json": "false" if city_opening and mode == "manual" else "true"}
-                ] if condition and not voting else [],
+                                     "amount_millions": 0 if voting else 20 if city_opening else contribution},
+                "own_conditions": own_conditions,
                 "pledge_demands": [], "condition_demands": [], "responses": [], "withdrawn_demands": [],
                 "addressed_to": "everyone", "vote": "for" if voting else "none",
             })
@@ -91,7 +166,8 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                         expected["city_administration"].update(water_supply=True, comfort_money=10, max_money=10,
                                                                custom_instructions=CUSTOM)
                         expected["city_residents"].update(water_supply=False, open_sensors=False, protest_moratorium=True)
-                        expected["industrial_holding"].update(start_money=140)
+                        expected["industrial_holding"].update(start_money=140, plant_mode="100%")
+                        expected["environmental_ngo"].update(plant_mode="100%", guilt="shared")
                         await self.assert_invalid_answers(api, path, expected)
                         saved = await api.put(path + "/settings", json={"mode": mode, "answers": expected})
                         self.assertEqual(saved.status_code, 200, saved.text)
@@ -111,6 +187,8 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(holding["conditions"], {"plant_mode": "100%", "timeline": 36})
                         self.assertEqual(residents["conditions"], {"protest_moratorium": False})
                         self.assertEqual(ngo["conditions"], {"open_sensors": True})
+                    else:
+                        self.assertEqual(configured["settings"]["roles"][1]["answers"]["plant_mode"], "70%")
 
                     with patch("asyncio.sleep", new=AsyncMock()):
                         launched = await api.post(path + "/start", headers={"Idempotency-Key": uuid4().hex})
@@ -139,20 +217,29 @@ class AgentQuestionnaireTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual([row["phase"] for row in messages], [phase for phase in ROUNDS for _ in range(5)])
                     self.assertEqual([row["role_id"] for row in messages], list(CONTRIBUTIONS) * 3)
                     self.assertEqual(len({row["message_id"] for row in messages}), 15)
-                    self.assertEqual(messages[0]["content"], "Ход пропущен: корректный ответ не получен.")
-                    self.assertTrue(messages[0]["skipped"])
-                    self.assertEqual(final["protocol_status"], "accepted")
+                    self.assertIn("Новых обязательств в этом ходе нет", messages[0]["content"])
+                    self.assertFalse(any(row.get("skipped") for row in messages))
+                    self.assertEqual(messages[2]["content"],
+                                     "Предлагаю разделить ответственность и предоставить налоговые льготы.")
+                    self.assertEqual(messages[5]["content"], repeated_city_position)
+                    self.assertEqual(messages[7]["content"], messages[2]["content"])
+                    accepted = not deficit_millions
+                    votes_against = set() if accepted else set(CONTRIBUTIONS)
+                    self.assertEqual(set(model_votes), set(CONTRIBUTIONS) - votes_against)
+                    self.assertEqual(final["protocol_status"], "accepted" if accepted else "rejected")
                     self.assertEqual(final["vote_summary"], {
-                        "for": 5, "against": 0, "abstain": 0,
-                        "votes": [{"role_id": role, "vote": "for"} for role in CONTRIBUTIONS],
+                        "for": 5 - len(votes_against), "against": len(votes_against), "abstain": 0,
+                        "votes": [{"role_id": role, "vote": "against" if role in votes_against else "for"}
+                                  for role in CONTRIBUTIONS],
                     })
                     self.assertEqual(final["forecast"]["basis"], "proposed_protocol")
-                    self.assertEqual(final["result"]["basis"], "accepted_protocol")
-                    self.assertEqual(final["result"]["outcome_title"], "Открытая река")
-                    self.assertEqual(final["result"]["executed_rub"], 270_000_000)
-                    self.assertIn("Очистные города N заработали на 36-м месяце", final["result"]["herald_text"])
-                    self.assertEqual(final["result"]["financial_load"][0]["budget_rub"], 30_000_000)
-                    self.assertEqual(final["result"]["financial_load"][0]["committed_rub"], 30_000_000)
+                    if accepted:
+                        self.assertEqual(final["result"]["basis"], "accepted_protocol")
+                        self.assertEqual(final["result"]["outcome_title"], "Открытая река")
+                        self.assertEqual(final["result"]["executed_rub"], 270_000_000)
+                        self.assertIn("Очистные города N заработали на 36-м месяце", final["result"]["herald_text"])
+                        self.assertEqual(final["result"]["financial_load"][0]["budget_rub"], 30_000_000)
+                        self.assertEqual(final["result"]["financial_load"][0]["committed_rub"], 30_000_000)
                     for role in configured["settings"]["roles"]:
                         self.assertTrue(any(role["strategy"] in prompt for prompt in provider_prompts[role["role_id"]]))
                     if mode == "manual":

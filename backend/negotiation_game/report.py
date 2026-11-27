@@ -4,7 +4,7 @@
 изменяют состояние.
 """
 
-from .rules import contribution_limit, is_owner
+from .rules import contribution_limit, is_owner, project_funding, questionnaire_game
 
 
 def render_partial_report(history, state, total_cost, levers_config, status, error=None) -> str:
@@ -33,6 +33,8 @@ def format_money(amount) -> str:
             return f"{int(millions)} млн руб."
         return f"{millions:.1f} млн руб."
     if abs(val) > 0:
+        if not val.is_integer():
+            return f"{val:,.2f} руб.".replace(",", " ").replace(".", ",", 1)
         return f"{int(val):,} руб.".replace(",", " ")
     return "0 руб."
 
@@ -90,22 +92,20 @@ def render_player_levers(speaker: str, levers_config: list[dict], current_levers
 
 
 def render_calculator(state: dict, total_cost: float) -> str:
-    total_c = 0.0
     total_s = 0.0
     player_rows = []
 
     for name, p_data in state["players"].items():
         c = p_data.get("contribution") or 0.0
         s = p_data.get("share") or 0.0
-        total_c += c
         total_s += s
         spent = p_data.get("spent_on_levers", 0.0)
         spent_str = f" [доп. расход: {format_money(spent)}]" if spent > 0 else ""
         c_str = format_money(c) if c > 0 else "0 руб."
         player_rows.append(f"│ {name:<33} │ {c_str:<18} │ {s:>5.1f}% │{spent_str}")
 
-    deficit = max(0.0, total_cost - total_c)
-    if deficit > 1000:
+    total_c, deficit = project_funding(state, total_cost)
+    if deficit > (0 if questionnaire_game(state) else 1000):
         deficit_status = f"⚠️ ДЕФИЦИТ: {format_money(deficit)} (НЕ ЗАКРЫТ!)"
     else:
         deficit_status = "✅ ДЕФИЦИТ: 0 руб. (100% ЗАКРЫТ!)"
@@ -168,8 +168,7 @@ def render_state(state: dict, levers_config: list[dict], total_cost: float) -> s
 
 def render_draft_treaty(state: dict, levers_config: list[dict], total_cost: float) -> str:
     """Формирует официальный текст Проекта Соглашения для голосования в чистом Markdown."""
-    total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-    deficit = max(0.0, total_cost - total_c)
+    total_c, deficit = project_funding(state, total_cost)
     total_s = sum(v["share"] for v in state["players"].values() if v.get("share") is not None)
 
     lines = [
@@ -187,7 +186,7 @@ def render_draft_treaty(state: dict, levers_config: list[dict], total_cost: floa
 
     lines.append("")
     lines.append(f"* **Суммарно подтверждено:** {format_money(total_c)} из {format_money(total_cost)} ({total_s:g}%)")
-    if deficit > 1000:
+    if deficit > (0 if questionnaire_game(state) else 1000):
         lines.append(f"* ⚠️ **Статус финансирования:** ДЕФИЦИТ {format_money(deficit)} (Остаточный дефицит бюджета)")
     else:
         lines.append("* ✅ **Статус финансирования:** БЮДЖЕТ ПОЛНОСТЬЮ ЗАКРЫТ (100% средств обеспечено)")
@@ -239,14 +238,13 @@ def render_voter_checklist(speaker: str, profile: dict, state: dict, levers_conf
     my_spent_levers = p_state.get("spent_on_levers", 0.0)
     base_budget = profile.get("money", 0)
 
-    total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-    deficit = max(0.0, total_cost - total_c)
+    _, deficit = project_funding(state, total_cost)
 
     limit = contribution_limit(p_state)
     financial_line = (f"Доля в управлении: {my_share:g}% (минимум: {attrs.get('min_share', 0):g}%)."
                       if limit is None else f"Доступно на взнос с учётом анкеты: {format_money(limit)}.")
     deficit_info = "✅ ПОЛНОСТЬЮ ЗАКРЫТ (100% средств обеспечено)"
-    if deficit > 100_000.0:
+    if deficit > (100_000.0 if limit is None else 0):
         deficit_info = f"⚠️ ДЕФИЦИТ {format_money(deficit)}"
         if limit is None:
             deficit_info += " (Принятие с дефицитом допустимо большинством голосов, покрытие ляжет на резервные фонды)"
@@ -281,9 +279,13 @@ def render_voter_checklist(speaker: str, profile: dict, state: dict, levers_conf
                 lines.append(f"   - Взнос @{d['target']} ({format_money(d['value'])}): {st_str}")
             else:
                 lines.append(f"   - {d.get('title')}: {st_str}")
-        lines.append("   💡 Если второстепенные пожелания не удовлетворены, но твои главные красные линии соблюдены и бюджет закрыт — прояви конструктивную позицию и готовность к компромиссу (допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ).")
+        if limit is None:
+            lines.append("   💡 Если второстепенные пожелания не удовлетворены, но твои главные красные линии соблюдены и бюджет закрыт — прояви конструктивную позицию и готовность к компромиссу (допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ).")
 
-    lines.append(f"6. Твои обязательные красные линии: {', '.join(attrs.get('red_lines', [])) if attrs.get('red_lines') else 'Нет жестких ограничений (ориентируйся на общий баланс интересов)'}.")
+    red_lines = ("сверь зафиксированные условия с анкетой и индивидуальной инструкцией"
+                 if limit is not None else
+                 ", ".join(attrs.get("red_lines", [])) or "Нет жестких ограничений (ориентируйся на общий баланс интересов)")
+    lines.append(f"6. Твои обязательные красные линии: {red_lines}.")
     return "\n".join(lines)
 
 
@@ -362,8 +364,7 @@ def format_action_badge(actions: list) -> str:
 
 
 def render_dialogue(history, state, voting_summary, total_cost, levers_config):
-    total_money = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-    deficit = max(0.0, total_cost - total_money)
+    total_money, deficit = project_funding(state, total_cost)
 
     lines = [
         "# 🏛️ ПРОТОКОЛ И СТЕНОГРАММА ОБЩЕСТВЕННЫХ СЛУШАНИЙ",
@@ -442,19 +443,26 @@ def render_dialogue(history, state, voting_summary, total_cost, levers_config):
     votes_abstain = voting_summary.get("votes_abstain", 0)
     quorum = voting_summary.get("quorum", 5)
     majority_threshold = voting_summary.get("majority_threshold", (quorum // 2) + 1)
-    deficit = voting_summary.get("deficit", max(0.0, total_cost - total_money))
+    deficit = voting_summary.get("deficit", deficit)
+    budget_closed = voting_summary.get("budget_closed", deficit <= 100_000.0)
+    questionnaires = questionnaire_game(state)
 
     lines.append("\n---\n## 📜 ИТОГОВЫЙ ПРОТОКОЛ ОБЩЕСТВЕННЫХ СЛУШАНИЙ ГОРОДА N\n")
     if passed:
-        lines.append("🎉 **СТАТУС: ПРОТОКОЛ ПРИНЯТ БОЛЬШИНСТВОМ ГОЛОСОВ!**\n")
+        verdict = "ЕДИНОГЛАСНО" if questionnaires else "БОЛЬШИНСТВОМ ГОЛОСОВ"
+        lines.append(f"🎉 **СТАТУС: ПРОТОКОЛ ПРИНЯТ {verdict}!**\n")
     else:
         lines.append("❌ **СТАТУС: ПРОТОКОЛ НЕ ПРИНЯТ!**\n")
+    threshold = "Для принятия" if questionnaires else "Порог большинства"
+    votes = f"* **Итоги голосования:** За: **{votes_for}**, Против: **{votes_against}**"
+    if not questionnaires:
+        votes += f", Воздержались: **{votes_abstain}**"
     lines.append(
-        f"* **Итоги голосования:** За: **{votes_for}**, Против: **{votes_against}**, Воздержались: **{votes_abstain}** (Порог большинства: {majority_threshold} из {quorum})\n"
+        f"{votes} ({threshold}: {majority_threshold} из {quorum})\n"
         f"* **Финансирование:** {format_money(total_money)} из {format_money(total_cost)} ({((total_money/total_cost)*100) if total_cost else 0:.1f}% от целевой суммы)\n"
     )
     if passed:
-        if deficit > 100_000.0:
+        if not budget_closed:
             lines.append(
                 f"> ⚠️ **Примечание по финансированию:** Проект принят при наличии остаточного дефицита в размере {format_money(deficit)}. "
                 f"Недостающие средства подлежат согласованию отдельным протоколом из резервных фондов или дополнительных источников.\n"
@@ -462,8 +470,9 @@ def render_dialogue(history, state, voting_summary, total_cost, levers_config):
     else:
         reasons = []
         if votes_for < majority_threshold:
-            reasons.append(f"не набрано большинство голосов (За: {votes_for}, необходимо: {majority_threshold})")
-        if deficit > 100_000.0:
+            missing_votes = "нужное число голосов" if questionnaires else "большинство голосов"
+            reasons.append(f"не набрано {missing_votes} (За: {votes_for}, необходимо: {majority_threshold})")
+        if not budget_closed:
             reasons.append(f"не закрыт дефицит бюджета проекта ({format_money(deficit)})")
         reason_str = "; ".join(reasons) if reasons else "несогласованность ключевых условий"
         lines.append(f"* **Причина отклонения:** {reason_str}.\n")

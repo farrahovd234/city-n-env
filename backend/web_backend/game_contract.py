@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, StringConstraints
 
 from consequences_model import forecast
-from consequences_model.catalog import HORIZON_MONTHS, SUBSYSTEM_LABELS
+from consequences_model.catalog import HORIZON_MONTHS, SUBSYSTEM_LABELS, TIMELINE_MONTHS
 from negotiation_game.engine import _get_default_settings
 from negotiation_game.rules import is_owner
 
@@ -111,12 +111,19 @@ class QuestionnaireOption(BaseModel):
     label: str
 
 
+class QuestionnaireRange(BaseModel):
+    minimum: int
+    maximum: int
+    unit: str
+
+
 class QuestionnaireField(BaseModel):
     id: str
     label: str
     hint: str | None
     options: list[QuestionnaireOption]
     required: bool
+    number_range: QuestionnaireRange | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class Questionnaire(BaseModel):
@@ -314,9 +321,10 @@ def default_settings() -> dict:
 
 
 def questionnaire_levers() -> list[dict]:
-    timeline = next(field for field in QUESTIONNAIRES["industrial_holding"]["fields"] if field["id"] == "timeline")
-    allowed_months = sorted(option["value"] for option in timeline["options"])
-    return [{**lever, "allowed": allowed_months} if lever["id"] == "timeline" else lever for lever in LEVERS]
+    minimum, maximum = TIMELINE_MONTHS
+    return [{**lever, "min_value": minimum, "max_value": maximum,
+             "description": f"Срок ввода очистных сооружений в месяцах. Допустимы целые числа от {minimum} до {maximum}."}
+            if lever["id"] == "timeline" else lever for lever in LEVERS]
 
 
 def spent_on_conditions(levers: list[dict], values: dict) -> int:

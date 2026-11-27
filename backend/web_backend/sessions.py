@@ -19,7 +19,7 @@ from negotiation_game.engine import NegotiationEngine
 
 from .game_contract import (SPEECH_PHASES, default_settings, make_protocol, projection, questionnaire_levers,
                             scenario_contract, votes)
-from .questionnaires import MILLION
+from .questionnaires import MILLION, QUESTIONNAIRES, vote_objections
 from .scenario import game_profiles, game_settings
 
 
@@ -98,6 +98,8 @@ class GameSession:
         state = self.state
         actions = []
         if state["status"] == "draft":
+            if "questionnaires" in state["scenario"]:
+                state = {**state, "scenario": {**state["scenario"], "questionnaires": QUESTIONNAIRES}}
             actions = ["settings", "cancel"]
             if self.record.get("settings_saved"):
                 actions.append("start")
@@ -121,6 +123,10 @@ class GameSession:
     @property
     def uses_questionnaires(self):
         return bool(self.state["settings"].get("setup_mode"))
+
+    def vote_objections(self, role_id, state):
+        role = next(role for role in self.state["settings"]["roles"] if role["role_id"] == role_id)
+        return vote_objections(role_id, role["answers"], state)
 
     def save(self):
         self.store.save(self.record)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#f6f3ea">
+  <meta name="theme-color" content="#efefe6">
   <title>Город N · Экологическая деловая игра</title>
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
@@ -14,71 +14,74 @@
     <div class="site-header-inner shell">
       <a class="brand" href="#start">
         <span class="brand-mark" aria-hidden="true">N</span>
-        <span><strong>Город N</strong><small>Экологическая деловая игра</small></span>
+        <strong>Город N</strong>
       </a>
-      <nav class="game-stages" aria-label="Этапы игры">
-        <ol>
-          <li data-stage="settings"><span>1</span> Анкеты</li>
-          <li data-stage="debate"><span>2</span> Переговоры</li>
-          <li data-stage="final"><span>3</span> Итоги</li>
-        </ol>
+      <nav class="site-nav" aria-label="Разделы игры">
+        <a data-page="start" href="#start" aria-current="page">Главная</a>
+        <a data-page="instruction" href="#instruction">Правила игры</a>
+        <a data-page="settings" href="#settings">Анкеты</a>
+        <a data-page="debate" href="#debate" hidden>Переговоры</a>
+        <a data-page="final" href="#final" hidden>Итоги</a>
+        <a data-page="assistant" href="#assistant" hidden>Помощник</a>
       </nav>
-      <a class="rules-link" href="#instruction">Правила игры <span aria-hidden="true">↗</span></a>
     </div>
   </header>
 
   <main class="shell" id="main" tabindex="-1">
     <p id="game-error" class="notice notice-error" role="alert" hidden></p>
     <section class="screen-view" data-screen-view="start">
-      <div class="intro">
-        <div class="intro-copy">
-          <p class="eyebrow">Городское досье <span aria-hidden="true">/</span> Экология</p>
-          <h1>Ситуация<br>в городе N</h1>
-          <p class="intro-description">После аварии на предприятии река загрязнена. Пяти сторонам предстоит договориться, как восстановить очистные сооружения и обеспечить жителей питьевой водой.</p>
-          <a href="#settings" class="button button-primary" id="start-link">Настроить агентов <span aria-hidden="true">→</span></a>
+      <div class="tabletop">
+        <div class="intro">
+          <div class="intro-copy">
+            <h1>Город после аварии</h1>
+            <p class="intro-description">Река загрязнена. Пять сторон должны договориться, кто оплатит реконструкцию очистных и как помогут горожанам.</p>
+            <a href="#settings" class="button button-primary" id="start-link">Настроить агентов</a>
+          </div>
+          <dl class="brief-stats">
+            <div><dt>Смета ремонта</dt><dd>270 млн ₽</dd></div>
+            <div><dt>Переговоры</dt><dd>3 раунда</dd></div>
+            <div><dt>За столом</dt><dd>5 сторон</dd></div>
+          </dl>
         </div>
-        <figure class="intro-image">
-          <img src="assets/intersect.png" width="1686" height="1804" alt="Птица стоит на мелководье загрязнённой реки">
-          <figcaption>Город N <span>Берег реки после аварии</span></figcaption>
-        </figure>
+        <img class="intro-photo" src="assets/tabletop/city-map.webp" srcset="assets/tabletop/city-map-small.webp 540w, assets/tabletop/city-map.webp 1170w" sizes="(max-width: 680px) 92vw, 53vw" width="1170" height="780" alt="Карта города N. Жилые кварталы и промышленная площадка стоят по разные стороны реки, рядом с мостом видны очистные сооружения." fetchpriority="high">
       </div>
-      <dl class="brief-stats">
-        <div><dt>Смета реконструкции</dt><dd>270 <small>млн ₽</small></dd></div>
-        <div><dt>Сторон за столом</dt><dd>5</dd></div>
-        <div><dt>Раунда переговоров</dt><dd>3</dd></div>
-      </dl>
       <section class="participants" aria-labelledby="participants-title">
-        <h2 id="participants-title">Участники переговоров</h2>
+        <h2 id="participants-title">Пять сторон за столом</h2>
         <ul>
-          <li>Администрация города N</li>
-          <li>Холдинг «Промкомплекс»</li>
-          <li>Правительство области</li>
-          <li>Инициативная группа жителей</li>
-          <li>Экоорганизация «Чистая река»</li>
+          <li data-role-id="city_administration"><img src="assets/tabletop/city_administration.webp" alt="" width="432" height="432" loading="lazy"><strong>Администрация</strong><p>Вода и бюджет города</p></li>
+          <li data-role-id="industrial_holding"><img src="assets/tabletop/industrial_holding.webp" alt="" width="432" height="432" loading="lazy"><strong>Промкомплекс</strong><p>Производство и взнос</p></li>
+          <li data-role-id="regional_government"><img src="assets/tabletop/regional_government.webp" alt="" width="432" height="432" loading="lazy"><strong>Регион</strong><p>Софинансирование</p></li>
+          <li data-role-id="city_residents"><img src="assets/tabletop/city_residents.webp" alt="" width="432" height="432" loading="lazy"><strong>Жители</strong><p>Чистая вода и тарифы</p></li>
+          <li data-role-id="environmental_ngo"><img src="assets/tabletop/environmental_ngo.webp" alt="" width="432" height="432" loading="lazy"><strong>Эко-НКО</strong><p>Независимые замеры</p></li>
         </ul>
       </section>
     </section>
 
     <section class="screen-view" data-screen-view="instruction" hidden>
       <header class="page-heading">
-        <div>
-          <h1>Правила игры</h1>
-          <p class="lede">Как устроены переговоры о будущем города N.</p>
-        </div>
-        <a class="button button-primary" href="#settings">К партии <span aria-hidden="true">→</span></a>
+        <h1>Правила игры</h1>
+        <a class="button button-outline" id="rules-return" href="#settings">К анкетам</a>
       </header>
       <div class="instructions">
         <article class="instruction-text">
-          <h2>Что произошло</h2>
-          <p>Городские очистные сооружения выработали свой ресурс. Авария на предприятии поставила под угрозу экосистему реки и здоровье жителей.</p>
-          <h2>Что предстоит сделать</h2>
-          <p>Заполните анкеты пяти сторон или воспользуйтесь готовыми ответами. По ним агенты сформируют позиции и проведут три раунда переговоров: представят позиции, обсудят условия и предложат поправки.</p>
-          <h2>Чем завершится партия</h2>
-          <p>Агенты проголосуют по протоколу. Модель рассчитает последствия для города на десять лет, а по журналу заседания можно будет разобрать стратегию выбранной стороны.</p>
+          <img class="rules-scene" src="assets/tabletop/negotiation.webp" width="960" height="480" alt="Пять участников заседания обсуждают схему города за общим столом" loading="lazy">
+          <p class="rules-context">Очистные сооружения города выработали свой ресурс. После аварии пять сторон должны договориться о помощи жителям и восстановлении очистных.</p>
+          <ol class="rules-steps" role="list">
+            <li><h2>Задайте позиции</h2><p>Заполните анкеты всех пяти сторон или примените готовые настройки. Ответы задают требования и пределы уступок.</p></li>
+            <li><h2>Послушайте переговоры</h2><p>Агенты проведут три раунда. В журнале появится до 15 реплик. Затем стороны проголосуют по общему протоколу.</p></li>
+            <li><h2>Разберите итог</h2><p>Газета покажет, каким может стать город через десять лет. Помощник разберёт реплики выбранной стороны и предложит, что можно было сказать иначе.</p></li>
+          </ol>
         </article>
-        <video class="instruction-player" src="assets/instruction.mp4" preload="none" playsinline controls aria-label="Видеоинструкция">
-          Ваш браузер не поддерживает воспроизведение видео.
-        </video>
+        <section class="rules-video" aria-labelledby="rules-subject">
+          <video class="instruction-player" src="assets/instruction.mp4" poster="assets/city/project-plan.webp" preload="none" playsinline controls aria-label="Видеоинструкция">
+            Ваш браузер не поддерживает воспроизведение видео.
+          </video>
+          <div class="rules-briefing">
+            <h2 id="rules-subject">Что решают стороны</h2>
+            <p>Кто платит за реконструкцию, когда запустят очистные и как обеспечат жителей чистой водой на время работ.</p>
+            <p>Для принятия протокола нужны пять голосов «за». При дефиците сметы все голосуют «против». Сторона также голосует «против», если нарушена её красная линия.</p>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -88,27 +91,35 @@
           <h1>Анкеты участников</h1>
           <p class="lede">Задайте условия, на которых каждая сторона готова договориться.</p>
         </div>
-        <button class="button button-outline" type="button" id="automatic-settings">Настроить автоматически</button>
       </header>
 
+      <section class="setup-card" id="setup-card" aria-labelledby="setup-card-title" hidden>
+        <div>
+          <h2 id="setup-card-title">Готовые настройки</h2>
+          <p>Заполните все анкеты одним действием и при необходимости измените ответы.</p>
+        </div>
+        <button class="button button-primary" type="button" id="automatic-settings">Настроить автоматически</button>
+        <p id="setup-mode" class="setup-status" role="status" hidden></p>
+        <p id="setup-auto-error" class="notice notice-error" role="alert" hidden></p>
+      </section>
       <div class="settings-layout">
-        <aside class="settings-sidebar">
-          <nav aria-label="Анкеты сторон">
+        <aside class="settings-sidebar" aria-label="Подготовка партии">
+          <nav class="role-deck" aria-label="Анкеты сторон">
             <div class="sidebar-heading">
               <h2>Стороны</h2>
               <span id="settings-progress" aria-live="polite"></span>
             </div>
+            <progress id="settings-meter" aria-labelledby="settings-progress" max="5" value="0" hidden></progress>
             <ol id="roles-nav" class="roles-nav"></ol>
           </nav>
         </aside>
 
         <div class="settings-main">
-          <p id="setup-mode" class="notice notice-mode" role="status" hidden></p>
           <p id="settings-error" class="notice notice-error" role="alert" hidden></p>
           <form id="role-settings" class="questionnaire" novalidate></form>
           <div class="form-actions">
-            <button class="button button-outline" type="button" id="next-role">Следующая анкета <span aria-hidden="true">→</span></button>
-            <button class="button button-primary" type="submit" form="role-settings" id="submit-settings-btn">Запустить партию <span aria-hidden="true">→</span></button>
+            <button class="button button-outline" type="button" id="next-role">Следующая анкета</button>
+            <button class="button button-primary" type="submit" form="role-settings" id="submit-settings-btn">Запустить партию</button>
           </div>
         </div>
       </div>
@@ -121,24 +132,28 @@
           <p id="phase-title" class="lede" role="status"></p>
         </div>
         <div class="debate-actions">
+          <button class="button button-quiet" type="button" id="latest-speech" hidden>К последней реплике</button>
           <button class="button button-outline" type="button" id="pause-btn" hidden></button>
           <button class="button button-quiet" type="button" id="stop-btn" hidden>Остановить партию</button>
         </div>
       </header>
+      <ol id="debate-roles" class="debate-roles" aria-label="Стороны заседания"></ol>
       <div class="record-layout">
         <div class="record-main" id="live-journal">
           <div id="journal-content">
             <p id="empty-journal" class="notice">Здесь будут появляться реплики участников.</p>
             <div id="debate-feed"></div>
           </div>
+          <div id="current-speaker" class="current-speaker" hidden></div>
           <form id="manual-input" class="document-card game-form" hidden></form>
         </div>
         <aside class="record-sidebar">
-          <section class="document-card">
+          <section class="document-card hearing-card">
             <div class="sidebar-heading">
               <h2>Ход заседания</h2>
               <span id="journal-progress"></span>
             </div>
+            <progress id="journal-meter" aria-labelledby="journal-progress" max="15" value="0" hidden></progress>
             <ol class="hearing-agenda" id="hearing-agenda"></ol>
           </section>
           <section id="protocol-panel" class="document-card" hidden></section>
@@ -154,16 +169,18 @@
     </section>
 
     <section class="screen-view" data-screen-view="final" hidden>
-      <div class="page-heading result-heading">
+      <header class="page-heading result-heading">
         <div>
           <h1 id="result-title">Итоги партии</h1>
+          <p id="result-state-copy" class="lede" hidden></p>
           <p id="result-error" class="notice notice-error" hidden></p>
         </div>
         <div class="debate-actions">
           <button type="button" class="button button-primary" id="retry-result" hidden>Повторить расчёт</button>
-          <a href="#start" id="finish-game" class="button button-outline">Завершить партию <span aria-hidden="true">→</span></a>
+          <button type="button" class="button button-primary" id="open-assistant" aria-controls="analysis-panel" hidden>К Помощнику</button>
+          <a href="#start" id="finish-game" class="button button-outline">Завершить партию</a>
         </div>
-      </div>
+      </header>
 
       <div class="result-layout">
         <article class="newspaper" id="final-newspaper" hidden>
@@ -172,10 +189,10 @@
             <p class="eyebrow" id="newspaper-horizon"></p>
           </header>
           <h2 class="newspaper-title" id="outcome-title"></h2>
+          <div class="herald-text" id="final-text-content"></div>
           <figure class="newspaper-photo" id="final-photo" hidden>
             <img id="consequence-photo" alt="Иллюстрация будущего города N">
           </figure>
-          <div class="herald-text" id="final-text-content"></div>
         </article>
 
         <aside class="record-sidebar" id="final-sidebar" aria-label="Документы заседания" hidden>
@@ -188,27 +205,51 @@
         </aside>
       </div>
 
-      <section class="analysis" id="analysis-panel" aria-labelledby="analysis-title" hidden>
-        <div class="analysis-intro">
-          <h2 id="analysis-title">Помогатор</h2>
-          <p>Разберите стратегию одной из сторон по репликам заседания.</p>
-          <form id="analysis-form">
-            <label for="analysis-role">Сторона переговоров</label>
-            <select id="analysis-role"></select>
-            <button type="submit" class="button button-primary" id="request-analysis">Разобрать стратегию <span aria-hidden="true">→</span></button>
-          </form>
-        </div>
-        <div class="analysis-content">
-          <p id="analysis-status" role="status" hidden></p>
-          <p id="analysis-error" class="notice notice-error" role="alert" hidden></p>
-          <div id="analysis-result"></div>
-        </div>
-      </section>
-
       <details class="journal-archive" id="journal-archive" hidden>
         <summary>Журнал заседания <span id="archive-count"></span></summary>
       </details>
     </section>
+
+    <section class="screen-view" data-screen-view="assistant" hidden>
+      <header class="page-heading">
+        <div>
+          <h1 id="analysis-title">Помощник</h1>
+          <p class="lede">Разбор всех реплик выбранной стороны.</p>
+        </div>
+        <a href="#final" class="button button-outline">К итогам</a>
+      </header>
+      <section class="analysis" id="analysis-panel" aria-labelledby="analysis-title" hidden>
+        <div class="analysis-desk">
+          <div class="analysis-summary" id="analysis-summary"></div>
+          <form id="analysis-form">
+            <div class="analysis-picker">
+              <label for="analysis-role">Сторона переговоров</label>
+              <select id="analysis-role"></select>
+            </div>
+            <button type="submit" class="button button-primary" id="request-analysis">Разобрать переговоры</button>
+          </form>
+        </div>
+        <p id="analysis-status" class="notice" role="status" hidden></p>
+        <p id="analysis-error" class="notice notice-error" role="alert" hidden></p>
+        <section class="analysis-preview" id="analysis-preview" aria-labelledby="analysis-preview-title" hidden>
+          <h2 id="analysis-preview-title">Реплики к разбору</h2>
+          <div id="analysis-preview-quotes"></div>
+        </section>
+        <section id="analysis-result" aria-labelledby="analysis-result-title" hidden></section>
+      </section>
+    </section>
   </main>
+  <dialog class="app-dialog" id="auto-settings-dialog" aria-labelledby="auto-dialog-title" aria-describedby="auto-dialog-copy">
+    <form method="dialog">
+      <header>
+        <h2 id="auto-dialog-title">Заменить ответы?</h2>
+        <p id="auto-dialog-copy">Готовые настройки заменят текущие ответы во всех пяти анкетах.</p>
+      </header>
+      <div class="dialog-actions">
+        <button type="submit" class="button button-outline" value="cancel" autofocus>Оставить мои ответы</button>
+        <button type="submit" class="button button-primary" value="confirm">Заменить ответы</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

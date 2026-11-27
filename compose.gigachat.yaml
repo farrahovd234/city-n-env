@@ -1,0 +1,38 @@
+services:
+  game:
+    profiles: [gigachat]
+    environment:
+      CITY_N_LLM_BASE_URL: http://gpt2giga:8090/v1
+    depends_on:
+      gpt2giga:
+        condition: service_healthy
+
+  gpt2giga:
+    profiles: [gigachat]
+    build:
+      context: .
+      target: gigachat
+    env_file:
+      - path: ./backend/gpt2giga.env
+        required: false
+    environment:
+      GPT2GIGA_HOST: 0.0.0.0
+      GPT2GIGA_PORT: "8090"
+      GPT2GIGA_MODE: PROD
+      GPT2GIGA_ENABLE_API_KEY_AUTH: "true"
+      GPT2GIGA_CORS_ALLOW_ORIGINS: "[]"
+      GPT2GIGA_LOG_FILENAME: /tmp/gpt2giga.log
+      GPT2GIGA_LOG_LEVEL: WARNING
+      GPT2GIGA_LOG_REDACT_SENSITIVE: "true"
+      GPT2GIGA_TRAFFIC_LOG_ENABLED: "false"
+      # Use the CA bundled with Gpt2Giga in place of a host filesystem path.
+      GIGACHAT_CA_BUNDLE_FILE: ""
+      GIGACHAT_USE_BUNDLED_CA: "true"
+      GIGACHAT_VERIFY_SSL_CERTS: "true"
+    healthcheck:
+      # The model catalog initializes on demand. /health is available after startup.
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8090/health', timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s

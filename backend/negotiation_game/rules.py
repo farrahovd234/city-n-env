@@ -38,6 +38,20 @@ def contribution_limit(player: dict) -> float | None:
     return min(cap, max(0, player["max_budget"] - player["spent_on_levers"]))
 
 
+def questionnaire_game(state: dict) -> bool:
+    return any("contribution_cap" in player for player in state["players"].values())
+
+
+def project_funding(state: dict, cost: float) -> tuple[float, float]:
+    pledges = [player["contribution"] or 0.0 for player in state["players"].values()]
+    if questionnaire_game(state):
+        collected = sum(round(amount * 100) for amount in pledges)
+        deficit = max(0, round(cost * 100) - collected)
+        return collected / 100, deficit / 100
+    collected = sum(pledges)
+    return collected, max(0.0, cost - collected)
+
+
 def prepare_player_turn(answer: PlayerTurn, speaker: str, state: dict,
                          levers_config: list[dict], total_cost: float,
                          voting: bool = False) -> tuple[dict, dict]:
