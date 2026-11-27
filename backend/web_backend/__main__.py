@@ -46,7 +46,10 @@ def start_proxy(config: Path):
     if not 1 <= port <= 65535:
         raise ValueError("GPT2GIGA_PORT должен быть в диапазоне 1–65535.")
     if listening(host, port):
-        raise ValueError(f"Порт Gpt2Giga {port} уже занят. Для работы с запущенным прокси вызовите start.cmd без --gigachat.")
+        raise ValueError(
+            f"Порт Gpt2Giga {port} уже занят. Для подключения к запущенному шлюзу задайте настройки "
+            "CITY_N_LLM_* в backend/.env. Затем из папки backend запустите uv run --locked python -m web_backend."
+        )
 
     url_host = f"[{host}]" if ":" in host else host
     if not os.environ.get("CITY_N_LLM_BASE_URL"):

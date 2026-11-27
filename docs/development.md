@@ -14,14 +14,14 @@ docker compose -f compose.yaml -f compose.openai.yaml up --build
 
 ## Запуск без контейнеров
 
-Понадобятся Python 3.12 и `uv`. Для GigaChat скопируйте [шаблон для локального шлюза](../backend/gpt2giga.env.example) в `backend/gpt2giga.env` и укажите там Authorization Key и scope. В PowerShell выполните `.\start.cmd --gigachat` из корня репозитория. В Linux и macOS выполните следующее.
+Понадобятся Python 3.12 и `uv`. Для GigaChat скопируйте [шаблон для локального шлюза](../backend/gpt2giga.env.example) в `backend/gpt2giga.env` и укажите там Authorization Key и scope. Команды для Windows, Linux и macOS одинаковые.
 
 ```bash
 cd backend
 uv run --locked --extra gigachat python -m web_backend --gigachat
 ```
 
-Для прямого подключения вне Docker задайте `CITY_N_LLM_BASE_URL`, `CITY_N_LLM_MODEL` и `CITY_N_LLM_API_KEY` в `backend/.env`. Запустите `.\start.cmd` из корня в PowerShell или `uv run --locked python -m web_backend` из `backend/` в Linux и macOS.
+Для прямого подключения вне Docker задайте `CITY_N_LLM_BASE_URL`, `CITY_N_LLM_MODEL` и, если нужна авторизация, `CITY_N_LLM_API_KEY` в `backend/.env`. Из папки `backend/` выполните `uv run --locked python -m web_backend`.
 
 ## API и состояние партии
 
@@ -39,8 +39,6 @@ uv run --locked --extra gigachat python -m web_backend --gigachat
 
 ## Настройки и диагностика
 
-- В Docker меняйте параметры в `.env` из корня репозитория. Для запуска без контейнеров используются `backend/.env` и `backend/gpt2giga.env`.
-- При переходе со старого запуска Docker скопируйте `GIGACHAT_CREDENTIALS`, `GIGACHAT_SCOPE` и `GIGACHAT_MODEL` из `backend/gpt2giga.env` в корневой `.env`. Compose настраивает адрес шлюза и общий ключ между сервисами.
 - При ошибке авторизации GigaChat проверьте `GIGACHAT_CREDENTIALS` и `GIGACHAT_SCOPE`. При ошибке подключения к другому провайдеру проверьте URL и доступность API из среды игры.
 - `CITY_N_IMAGES=0` включает текстовый режим газеты. Для HTTPS за обратным прокси можно задать `CITY_N_SECURE_COOKIE=1`.
 
