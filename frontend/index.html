@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#f4f3ef">
+  <meta name="description" content="Интерактивный экологический симулятор переговоров и последствий решений для города N.">
   <title>Город N</title>
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
@@ -12,21 +13,40 @@
   <a class="skip-link" href="#main-info-col">Перейти к содержанию</a>
   <div class="screen-wrapper">
     <main class="screen-frame" data-current-screen="start">
+      <header class="site-header" aria-label="Шапка проекта">
+        <a class="brand-lockup" href="#start" aria-label="Город N — на главную">
+          <span class="brand-symbol" aria-hidden="true">N</span>
+          <span class="brand-copy">
+            <strong>ГОРОД N</strong>
+            <small>ЭКОЛОГИЧЕСКИЙ СИМУЛЯТОР</small>
+          </span>
+        </a>
+        <div class="header-context">ИССЛЕДОВАНИЕ ГОРОДСКИХ РЕШЕНИЙ <span> / </span> 2046</div>
+        <div class="header-meta">
+          <span class="header-status-dot" aria-hidden="true"></span>
+          <span id="header-stage">ИНТЕРАКТИВНЫЙ СЦЕНАРИЙ</span>
+          <span class="header-index">RU <i> / </i> 01</span>
+        </div>
+      </header>
       <p id="game-error" role="alert" hidden></p>
 
       <!-- ЛЕВЫЕ 3 КОЛОНКИ: ИНФОРМАЦИОННЫЙ БЛОК -->
       <section class="info-col" id="main-info-col" tabindex="-1">
+        <div class="demo-badge" id="demo-badge" role="status" hidden>
+          <span class="demo-badge-dot" aria-hidden="true"></span>
+          ДЕМО-РЕЖИМ · УЧЕБНЫЕ ДАННЫЕ · МОЖНО СВОБОДНО ЭКСПЕРИМЕНТИРОВАТЬ
+        </div>
         <!-- Экран 1: Старт (Чёрно-белая иллюстрация из макета) -->
         <div class="screen-view active" data-screen-view="start">
           <div class="start-art">
-            <img src="assets/intersect.png" alt="Город N — Экологический симулятор" id="start-image">
+            <img src="assets/intersect.png" alt="Город N — Экологический симулятор" id="start-image" onerror="this.onerror=null;this.src='assets/demo-river.jpg';">
           </div>
         </div>
 
         <!-- Экран 2: Инструкция (Видео и текст) -->
         <div class="screen-view" data-screen-view="instruction" hidden>
           <div class="video-container">
-            <video id="instruction-video" class="instruction-player" src="assets/instruction.mp4" preload="none" muted playsinline controls aria-label="Видеоинструкция">
+            <video id="instruction-video" class="instruction-player" src="assets/instruction.mp4" poster="assets/demo-river.jpg" preload="none" muted playsinline controls aria-label="Видеоинструкция">
               Ваш браузер не поддерживает воспроизведение видео.
             </video>
           </div>
@@ -170,6 +190,7 @@
               <a href="#settings" class="menu-link" id="start-link">ИГРАТЬ</a>
               <a href="#instruction" class="menu-link">ИНСТРУКЦИЯ</a>
               <button type="button" class="menu-btn" id="exit-btn">ВЫХОД</button>
+              <button type="button" class="menu-btn menu-link-secondary demo-launch" id="demo-start">ПОПРОБОВАТЬ ДЕМО ↗</button>
             </div>
           </nav>
         </div>
@@ -209,6 +230,11 @@
           <h1 class="menu-title" id="phase-title">ИДУТ ДЕБАТЫ</h1>
           <nav class="menu-grid menu-grid-single" aria-label="Управление заседанием">
             <div class="menu-col-stack">
+              <div class="demo-progress" id="demo-progress" hidden>
+                <div class="demo-progress-meta"><span>ХОД ДЕМО-СЦЕНАРИЯ</span><strong id="demo-progress-count">0 / 8</strong></div>
+                <progress id="demo-meter" max="8" value="0"></progress>
+                <button type="button" class="menu-btn menu-link-secondary" id="demo-skip">ПЕРЕЙТИ К ИТОГАМ →</button>
+              </div>
               <div class="menu-items-group">
                 <button type="button" class="menu-btn" id="pause-btn" hidden>ПАУЗА</button>
                 <button type="button" class="menu-btn" id="stop-btn" hidden>СТОП</button>
