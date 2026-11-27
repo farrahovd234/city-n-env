@@ -1,60 +1,20 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Дебаты города N",
-    "version": "0.2.0",
-    "description": "Запуск партии, ход переговоров и прогноз последствий для игры «Город N»."
+    "title": "Город N",
+    "version": "1.0.0"
   },
   "paths": {
     "/api/v1/scenario": {
       "get": {
-        "operationId": "getScenario",
-        "summary": "Настройки пилотного сценария",
+        "summary": "Scenario",
+        "operationId": "scenario_api_v1_scenario_get",
         "responses": {
           "200": {
-            "description": "Сценарий",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Scenario"
-                },
-                "examples": {
-                  "default": {
-                    "value": {
-                      "title": "Ситуация в городе N",
-                      "briefing": "После аварии на предприятии холдинга река загрязнена. Пять сторон обсуждают восстановление очистных и безопасную воду для жителей.",
-                      "roles": [
-                        {
-                          "id": "city_administration",
-                          "name": "Администрация",
-                          "interest": "Обеспечить горожан водой и привлечь финансирование без непосильных расходов."
-                        },
-                        {
-                          "id": "industrial_holding",
-                          "name": "Промкомплекс",
-                          "interest": "Сохранить работу предприятия и договориться о распределении расходов."
-                        },
-                        {
-                          "id": "regional_government",
-                          "name": "Регион",
-                          "interest": "Разрешить конфликт и добиться участия холдинга в финансировании."
-                        },
-                        {
-                          "id": "city_residents",
-                          "name": "Жители",
-                          "interest": "Получить безопасную воду без роста тарифов."
-                        },
-                        {
-                          "id": "environmental_ngo",
-                          "name": "Эко-НКО",
-                          "interest": "Добиться независимого контроля и открытых данных о состоянии реки."
-                        }
-                      ],
-                      "total_cost_rub": 270000000,
-                      "max_bargaining_turns": 15
-                    }
-                  }
-                }
+                "schema": {}
               }
             }
           }
@@ -63,495 +23,1031 @@
     },
     "/api/v1/games": {
       "post": {
-        "operationId": "startGame",
-        "summary": "Запустить партию",
+        "summary": "Start Game",
+        "operationId": "start_game_api_v1_games_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartRequest"
-              },
-              "examples": {
-                "defaults": {
-                  "value": {}
-                },
-                "studentStrategies": {
-                  "value": {
-                    "strategies": {
-                      "city_residents": "Добивайтесь чистой воды и заморозки тарифов."
-                    }
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StartGame"
+                  },
+                  {
+                    "type": "null"
                   }
-                }
+                ],
+                "title": "Body"
               }
             }
           }
         },
         "responses": {
-          "202": {
-            "description": "Партия поставлена на выполнение",
+          "201": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StartResponse"
-                },
-                "examples": {
-                  "queued": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "queued",
-                      "status_url": "/api/v1/games/demo-run-001"
-                    }
-                  }
-                }
-              }
-            },
-            "headers": {
-              "Location": {
-                "description": "URL состояния партии",
-                "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/GameSnapshot"
                 }
               }
             }
           },
-          "422": {
-            "description": "Неверная роль или тип стратегии",
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid": {
-                    "value": {
-                      "code": "invalid_game_input",
-                      "message": "Проверьте поля стратегий."
-                    }
-                  }
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
-            }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "202": {
+            "description": "Прежний режим автоматического запуска"
           }
         }
       }
     },
     "/api/v1/games/{game_id}": {
-      "parameters": [
-        {
-          "name": "game_id",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      ],
       "get": {
-        "operationId": "getGame",
-        "summary": "Состояние и итог партии",
+        "summary": "Get Game",
+        "operationId": "get_game_api_v1_games__game_id__get",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Состояние партии",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Game"
-                },
-                "examples": {
-                  "queued": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "queued"
-                    }
-                  },
-                  "running": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "running"
-                    }
-                  },
-                  "acceptedWithDeficit": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "completed",
-                      "result": {
-                        "accepted": true,
-                        "total_cost_rub": 270000000.0,
-                        "pledged_rub": 260000000.0,
-                        "deficit_rub": 10000000.0,
-                        "contributions": [
-                          {
-                            "role_id": "city_administration",
-                            "pledged_rub": 30000000.0,
-                            "spent_on_conditions_rub": 20000000.0
-                          },
-                          {
-                            "role_id": "industrial_holding",
-                            "pledged_rub": 140000000.0,
-                            "spent_on_conditions_rub": 0.0
-                          },
-                          {
-                            "role_id": "regional_government",
-                            "pledged_rub": 90000000.0,
-                            "spent_on_conditions_rub": 0
-                          },
-                          {
-                            "role_id": "city_residents",
-                            "pledged_rub": 0,
-                            "spent_on_conditions_rub": 0
-                          },
-                          {
-                            "role_id": "environmental_ngo",
-                            "pledged_rub": 0,
-                            "spent_on_conditions_rub": 0.0
-                          }
-                        ],
-                        "conditions": [
-                          {
-                            "id": "guilt",
-                            "owner_role_id": "regional_government",
-                            "value": "shared"
-                          },
-                          {
-                            "id": "plant_mode",
-                            "owner_role_id": "industrial_holding",
-                            "value": "100%"
-                          },
-                          {
-                            "id": "timeline",
-                            "owner_role_id": "industrial_holding",
-                            "value": 36
-                          },
-                          {
-                            "id": "tariffs_freeze",
-                            "owner_role_id": "city_administration",
-                            "value": false
-                          },
-                          {
-                            "id": "tax_relief",
-                            "owner_role_id": "regional_government",
-                            "value": false
-                          },
-                          {
-                            "id": "open_sensors",
-                            "owner_role_id": "environmental_ngo",
-                            "value": true
-                          },
-                          {
-                            "id": "protest_moratorium",
-                            "owner_role_id": "city_residents",
-                            "value": false
-                          },
-                          {
-                            "id": "water_supply",
-                            "owner_role_id": "city_administration",
-                            "value": true
-                          }
-                        ],
-                        "votes": [
-                          {
-                            "role_id": "city_administration",
-                            "value": "for",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "industrial_holding",
-                            "value": "for",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "regional_government",
-                            "value": "for",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "city_residents",
-                            "value": "for",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "environmental_ngo",
-                            "value": "for",
-                            "status": "ok"
-                          }
-                        ],
-                        "transcript": [
-                          {
-                            "turn": 1,
-                            "phase": "opening",
-                            "role_id": "city_administration",
-                            "text": "Предлагаем обсудить финансирование очистных и доставку питьевой воды.",
-                            "actions": [],
-                            "status": "ok"
-                          }
-                        ],
-                        "consequences": {
-                          "outcome_id": "compromise",
-                          "outcome_title": "Компромисс",
-                          "executed_rub": 260000000.0,
-                          "commissioning_month": 60,
-                          "report_markdown": "Компромисс. Исполнено 260 млн ₽.",
-                          "herald_text": "Вестник города N: через 10 лет после общественных слушаний — исход «Компромисс». Очистные введены, общий проект состоялся. Разногласия сторон, сроки или полнота исполнения обязательств потребовали компромисса. Протокол принят. Заявленные взносы: 260 млн ₽ из 270 млн ₽. Фактически внесено: 260 млн ₽. Сроки: обещано 36 мес., очистные введены на 60-м месяце. Показатели города: экологический риск — низкий; недовольство и риск протестов — низкие; доверие к администрации — восстановлено; негатив к холдингу — снижен до 60% и ниже; рабочие места — под давлением.",
-                          "image_url": null
-                        },
-                        "negotiation_report_markdown": "# Итоги переговоров\n\nРезультаты голосования и состояние сметы.",
-                        "budget_closed": false
-                      }
-                    }
-                  },
-                  "rejected": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "completed",
-                      "result": {
-                        "accepted": false,
-                        "total_cost_rub": 270000000.0,
-                        "pledged_rub": 260000000.0,
-                        "deficit_rub": 10000000.0,
-                        "contributions": [
-                          {
-                            "role_id": "city_administration",
-                            "pledged_rub": 30000000.0,
-                            "spent_on_conditions_rub": 20000000.0
-                          },
-                          {
-                            "role_id": "industrial_holding",
-                            "pledged_rub": 140000000.0,
-                            "spent_on_conditions_rub": 0.0
-                          },
-                          {
-                            "role_id": "regional_government",
-                            "pledged_rub": 90000000.0,
-                            "spent_on_conditions_rub": 0
-                          },
-                          {
-                            "role_id": "city_residents",
-                            "pledged_rub": 0,
-                            "spent_on_conditions_rub": 0
-                          },
-                          {
-                            "role_id": "environmental_ngo",
-                            "pledged_rub": 0,
-                            "spent_on_conditions_rub": 0.0
-                          }
-                        ],
-                        "conditions": [
-                          {
-                            "id": "guilt",
-                            "owner_role_id": "regional_government",
-                            "value": "shared"
-                          },
-                          {
-                            "id": "plant_mode",
-                            "owner_role_id": "industrial_holding",
-                            "value": "100%"
-                          },
-                          {
-                            "id": "timeline",
-                            "owner_role_id": "industrial_holding",
-                            "value": 36
-                          },
-                          {
-                            "id": "tariffs_freeze",
-                            "owner_role_id": "city_administration",
-                            "value": false
-                          },
-                          {
-                            "id": "tax_relief",
-                            "owner_role_id": "regional_government",
-                            "value": false
-                          },
-                          {
-                            "id": "open_sensors",
-                            "owner_role_id": "environmental_ngo",
-                            "value": true
-                          },
-                          {
-                            "id": "protest_moratorium",
-                            "owner_role_id": "city_residents",
-                            "value": false
-                          },
-                          {
-                            "id": "water_supply",
-                            "owner_role_id": "city_administration",
-                            "value": true
-                          }
-                        ],
-                        "votes": [
-                          {
-                            "role_id": "city_administration",
-                            "value": "against",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "industrial_holding",
-                            "value": "for",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "regional_government",
-                            "value": "for",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "city_residents",
-                            "value": "abstain",
-                            "status": "ok"
-                          },
-                          {
-                            "role_id": "environmental_ngo",
-                            "value": "abstain",
-                            "status": "ok"
-                          }
-                        ],
-                        "transcript": [
-                          {
-                            "turn": 1,
-                            "phase": "opening",
-                            "role_id": "city_administration",
-                            "text": "Предлагаем обсудить финансирование очистных и доставку питьевой воды.",
-                            "actions": [],
-                            "status": "ok"
-                          }
-                        ],
-                        "consequences": {
-                          "outcome_id": "each_for_self",
-                          "outcome_title": "Каждый сам за себя",
-                          "executed_rub": 115000000.0,
-                          "commissioning_month": null,
-                          "report_markdown": "Каждый сам за себя. Исполнено 115 млн ₽.",
-                          "herald_text": "Вестник города N: через 10 лет после общественных слушаний — исход «Каждый сам за себя». Общий протокол не принят. Отдельные стороны частично выполняют то, что заявляли, но без общего плана и контроля. Улучшения медленные и частичные, ответственность размыта. Протокол не принят. Заявленные взносы: 260 млн ₽ из 270 млн ₽. Фактически внесено: 115 млн ₽. Сроки: обещано 36 мес., очистные не введены за 10 лет. Показатели города: экологический риск — высокий; недовольство и риск протестов — высокие; доверие к администрации — подорвано; негатив к холдингу — остаётся около 90%; рабочие места — под давлением.",
-                          "image_url": null
-                        },
-                        "negotiation_report_markdown": "# Итоги переговоров\n\nРезультаты голосования и состояние сметы.",
-                        "budget_closed": false
-                      }
-                    }
-                  },
-                  "failed": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "failed",
-                      "error": {
-                        "code": "provider_unavailable",
-                        "message": "Не удалось завершить партию. Запустите новую попытку."
-                      },
-                      "progress": {
-                        "transcript": [],
-                        "report_markdown": "Игра прервана."
-                      }
-                    }
-                  },
-                  "cancelled": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "cancelled",
-                      "progress": {
-                        "transcript": [],
-                        "report_markdown": "Игра отменена."
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/GameSnapshot"
                 }
               }
             }
           },
           "404": {
-            "description": "Запуск не найден",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "notFound": {
-                    "value": {
-                      "code": "game_not_found",
-                      "message": "Партия не найдена."
-                    }
-                  }
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
-            }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
           }
         }
       }
     },
     "/api/v1/games/{game_id}/cancel": {
-      "parameters": [
-        {
-          "name": "game_id",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      ],
       "post": {
-        "operationId": "cancelGame",
-        "summary": "Остановить партию",
+        "summary": "Cancel Game",
+        "operationId": "cancel_game_api_v1_games__game_id__cancel_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Партия отменена",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CancelledGame"
-                },
-                "examples": {
-                  "result": {
-                    "value": {
-                      "game_id": "demo-run-001",
-                      "status": "cancelled",
-                      "progress": {
-                        "transcript": [],
-                        "report_markdown": "Игра отменена."
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/GameSnapshot"
                 }
               }
             }
           },
           "404": {
-            "description": "Запуск не найден",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "result": {
-                    "value": {
-                      "code": "game_not_found",
-                      "message": "Партия не найдена."
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/settings": {
+      "put": {
+        "summary": "Save Settings",
+        "operationId": "save_settings_api_v1_games__game_id__settings_put",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Settings"
+                  },
+                  {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/ManualSettings"
+                      },
+                      {
+                        "$ref": "#/components/schemas/AutomaticSettings"
+                      }
+                    ],
+                    "discriminator": {
+                      "propertyName": "mode",
+                      "mapping": {
+                        "manual": "#/components/schemas/ManualSettings",
+                        "automatic": "#/components/schemas/AutomaticSettings"
+                      }
                     }
                   }
+                ],
+                "title": "Settings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameSnapshot"
                 }
               }
             }
           },
-          "409": {
-            "description": "Запуск уже завершён",
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/start": {
+      "post": {
+        "summary": "Start",
+        "operationId": "start_api_v1_games__game_id__start_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
                 },
-                "examples": {
-                  "result": {
-                    "value": {
-                      "code": "game_cannot_cancel",
-                      "message": "Партию уже нельзя отменить."
-                    }
-                  }
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameSnapshot"
                 }
               }
             }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/events": {
+      "get": {
+        "summary": "Events",
+        "operationId": "events_api_v1_games__game_id__events_get",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/pause": {
+      "post": {
+        "summary": "Pause",
+        "operationId": "pause_api_v1_games__game_id__pause_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/continue": {
+      "post": {
+        "summary": "Resume",
+        "operationId": "resume_api_v1_games__game_id__continue_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/inputs/{input_id}": {
+      "post": {
+        "summary": "Input Reply",
+        "operationId": "input_reply_api_v1_games__game_id__inputs__input_id__post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "input_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Input Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Speech"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Ballot"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "speech": "#/components/schemas/Speech",
+                    "vote": "#/components/schemas/Ballot"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/roles/{role_id}/instructions": {
+      "post": {
+        "summary": "Instructions",
+        "operationId": "instructions_api_v1_games__game_id__roles__role_id__instructions_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "role_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Instruction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstructionAccepted"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/retry-result": {
+      "post": {
+        "summary": "Retry Result",
+        "operationId": "retry_result_api_v1_games__game_id__retry_result_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/analysis/questionnaire/{role_id}": {
+      "get": {
+        "summary": "Analyze Questionnaire",
+        "operationId": "analyze_questionnaire_api_v1_games__game_id__analysis_questionnaire__role_id__get",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "role_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionnaireReview"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/analysis": {
+      "post": {
+        "summary": "Analyze Game",
+        "operationId": "analyze_game_api_v1_games__game_id__analysis_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleAnalysis"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         }
       }
@@ -559,534 +1055,1796 @@
   },
   "components": {
     "schemas": {
-      "RoleId": {
-        "type": "string",
-        "enum": [
-          "city_administration",
-          "industrial_holding",
-          "regional_government",
-          "city_residents",
-          "environmental_ngo"
-        ]
-      },
-      "Role": {
-        "type": "object",
+      "AnalysisReference": {
         "properties": {
-          "id": {
-            "$ref": "#/components/schemas/RoleId"
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
           },
-          "name": {
-            "type": "string"
-          },
-          "interest": {
-            "type": "string"
+          "quote": {
+            "type": "string",
+            "title": "Quote"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "quote"
+        ],
+        "title": "AnalysisReference"
+      },
+      "AnalysisRequest": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "message_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Ids"
+          },
+          "complete_from_journal": {
+            "type": "boolean",
+            "title": "Complete From Journal",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role_id"
+        ],
+        "title": "AnalysisRequest"
+      },
+      "AnswerAdvice": {
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "title": "Field Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "chosen": {
+            "type": "string",
+            "title": "Chosen"
+          },
+          "suggested": {
+            "type": "string",
+            "title": "Suggested"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field_id",
+          "question",
+          "chosen",
+          "suggested",
+          "reason"
+        ],
+        "title": "AnswerAdvice"
+      },
+      "ApiError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "field_errors": {
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            },
+            "type": "array",
+            "title": "Field Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiError"
+      },
+      "AutomaticSettings": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "automatic",
+            "title": "Mode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "AutomaticSettings"
+      },
+      "Ballot": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "vote",
+            "title": "Type"
+          },
+          "vote": {
+            "type": "string",
+            "enum": [
+              "for",
+              "against",
+              "abstain"
+            ],
+            "title": "Vote"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "vote"
+        ],
+        "title": "Ballot"
+      },
+      "ConditionSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boolean",
+              "integer",
+              "string"
+            ],
+            "title": "Type"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Default"
+          },
+          "cost_rub": {
+            "type": "integer",
+            "title": "Cost Rub"
+          },
+          "allowed": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed"
+          },
+          "min_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Value"
+          },
+          "max_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "description",
+          "type",
+          "required",
+          "default",
+          "cost_rub"
+        ],
+        "title": "ConditionSchema"
+      },
+      "EventPage": {
+        "properties": {
+          "events": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MessageCreated"
+                },
+                {
+                  "$ref": "#/components/schemas/StateChanged"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "game.cancelled": "#/components/schemas/StateChanged",
+                  "game.completed": "#/components/schemas/StateChanged",
+                  "game.failed": "#/components/schemas/StateChanged",
+                  "input.requested": "#/components/schemas/StateChanged",
+                  "input.resolved": "#/components/schemas/StateChanged",
+                  "message.created": "#/components/schemas/MessageCreated",
+                  "pause.changed": "#/components/schemas/StateChanged",
+                  "phase.changed": "#/components/schemas/StateChanged",
+                  "settings.saved": "#/components/schemas/StateChanged",
+                  "turn.started": "#/components/schemas/StateChanged",
+                  "vote.closed": "#/components/schemas/StateChanged"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "next_cursor": {
+            "type": "integer",
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "EventPage"
+      },
+      "FieldError": {
+        "properties": {
+          "path": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Path"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "message"
+        ],
+        "title": "FieldError"
+      },
+      "FinancialLoad": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "budget_rub": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Rub"
+          },
+          "pledged_rub": {
+            "type": "number",
+            "title": "Pledged Rub"
+          },
+          "spent_on_conditions_rub": {
+            "type": "number",
+            "title": "Spent On Conditions Rub"
+          },
+          "committed_rub": {
+            "type": "number",
+            "title": "Committed Rub"
+          },
+          "budget_used_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Used Percent"
+          },
+          "over_budget_rub": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Over Budget Rub"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role_id",
+          "budget_rub",
+          "pledged_rub",
+          "spent_on_conditions_rub",
+          "committed_rub",
+          "budget_used_percent",
+          "over_budget_rub"
+        ],
+        "title": "FinancialLoad"
+      },
+      "Funding": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "amount_rub": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Amount Rub"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role_id",
+          "amount_rub"
+        ],
+        "title": "Funding"
+      },
+      "GameProtocol": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProtocolItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "items"
+        ],
+        "title": "GameProtocol"
+      },
+      "GameSnapshot": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "running",
+              "completed",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "positions",
+                  "negotiation",
+                  "amendments",
+                  "preparing_protocol",
+                  "forecasting",
+                  "voting",
+                  "calculating_result"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "pause_state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "requested",
+              "paused"
+            ],
+            "title": "Pause State"
+          },
+          "last_event_id": {
+            "type": "integer",
+            "title": "Last Event Id"
+          },
+          "expires_at": {
+            "type": "string",
+            "title": "Expires At"
+          },
+          "available_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Available Actions"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/Scenario"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SavedSettings"
+          },
+          "current_role_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Role Id"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "pending_input": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SpeechRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/VoteRequest"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "speech": "#/components/schemas/SpeechRequest",
+                    "vote": "#/components/schemas/VoteRequest"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Input"
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GameProtocol"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Projection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocol_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Protocol Status"
+          },
+          "vote_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VoteSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Projection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "status",
+          "phase",
+          "pause_state",
+          "last_event_id",
+          "expires_at",
+          "available_actions",
+          "scenario",
+          "settings",
+          "current_role_id",
+          "messages",
+          "pending_input",
+          "protocol",
+          "forecast",
+          "protocol_status",
+          "vote_summary",
+          "result",
+          "error"
+        ],
+        "title": "GameSnapshot"
+      },
+      "Indicator": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "initial_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Value"
+          },
+          "year_one_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Year One Value"
+          },
+          "final_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Final Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "unit",
+          "initial_value",
+          "year_one_value",
+          "final_value"
+        ],
+        "title": "Indicator"
+      },
+      "Instruction": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 6000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "Instruction"
+      },
+      "InstructionAccepted": {
+        "properties": {
+          "instruction_id": {
+            "type": "string",
+            "title": "Instruction Id"
+          },
+          "applies_to": {
+            "type": "string",
+            "const": "next_unstarted_speech",
+            "title": "Applies To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "instruction_id",
+          "applies_to"
+        ],
+        "title": "InstructionAccepted"
+      },
+      "ManualSettings": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "manual",
+            "title": "Mode"
+          },
+          "answers": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Answers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "answers"
+        ],
+        "title": "ManualSettings"
+      },
+      "Message": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "turn_id": {
+            "type": "string",
+            "title": "Turn Id"
+          },
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "positions",
+              "negotiation",
+              "amendments",
+              "preparing_protocol",
+              "forecasting",
+              "voting",
+              "calculating_result"
+            ],
+            "title": "Phase"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "skipped": {
+            "type": "boolean",
+            "title": "Skipped",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "turn_id",
+          "role_id",
+          "phase",
+          "content"
+        ],
+        "title": "Message"
+      },
+      "MessageCreated": {
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "title": "Event Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "message.created",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "type",
+          "payload"
+        ],
+        "title": "MessageCreated"
+      },
+      "MoveReview": {
+        "properties": {
+          "observation": {
+            "type": "string",
+            "title": "Observation"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "improve",
+              "neutral"
+            ],
+            "title": "Verdict"
+          },
+          "next_reply": {
+            "type": "string",
+            "title": "Next Reply"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisReference"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "References"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "observation",
+          "verdict",
+          "next_reply",
+          "references"
+        ],
+        "title": "MoveReview"
+      },
+      "Projection": {
+        "properties": {
+          "protocol_version": {
+            "type": "integer",
+            "title": "Protocol Version"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "proposed_protocol",
+              "accepted_protocol",
+              "no_agreement"
+            ],
+            "title": "Basis"
+          },
+          "period_months": {
+            "type": "integer",
+            "title": "Period Months"
+          },
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/Indicator"
+            },
+            "type": "array",
+            "title": "Indicators"
+          },
+          "outcome_title": {
+            "type": "string",
+            "title": "Outcome Title"
+          },
+          "executed_rub": {
+            "type": "number",
+            "title": "Executed Rub"
+          },
+          "commissioning_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commissioning Month"
+          },
+          "herald_text": {
+            "type": "string",
+            "title": "Herald Text"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "financial_load": {
+            "items": {
+              "$ref": "#/components/schemas/FinancialLoad"
+            },
+            "type": "array",
+            "title": "Financial Load"
+          },
+          "report_markdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Markdown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "basis",
+          "period_months",
+          "indicators",
+          "outcome_title",
+          "executed_rub",
+          "commissioning_month",
+          "herald_text",
+          "image_url"
+        ],
+        "title": "Projection"
+      },
+      "ProtocolItem": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "title": "Item Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "responsible_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Responsible Role Ids"
+          },
+          "funding": {
+            "items": {
+              "$ref": "#/components/schemas/Funding"
+            },
+            "type": "array",
+            "title": "Funding"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id",
+          "title",
+          "description",
+          "responsible_role_ids",
+          "funding"
+        ],
+        "title": "ProtocolItem"
+      },
+      "Questionnaire": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionnaireField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "defaults": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Defaults"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fields",
+          "defaults"
+        ],
+        "title": "Questionnaire"
+      },
+      "QuestionnaireField": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionnaireOption"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          },
+          "number_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionnaireRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "hint",
+          "options",
+          "required"
+        ],
+        "title": "QuestionnaireField"
+      },
+      "QuestionnaireOption": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Value"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "QuestionnaireOption"
+      },
+      "QuestionnaireRange": {
+        "properties": {
+          "minimum": {
+            "type": "integer",
+            "title": "Minimum"
+          },
+          "maximum": {
+            "type": "integer",
+            "title": "Maximum"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "minimum",
+          "maximum",
+          "unit"
+        ],
+        "title": "QuestionnaireRange"
+      },
+      "QuestionnaireReview": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerAdvice"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "context",
+          "items"
+        ],
+        "title": "QuestionnaireReview"
+      },
+      "Role": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "interest": {
+            "type": "string",
+            "title": "Interest"
+          }
+        },
+        "type": "object",
         "required": [
           "id",
           "name",
           "interest"
         ],
-        "additionalProperties": false
+        "title": "Role"
       },
-      "Scenario": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string"
-          },
-          "briefing": {
-            "type": "string"
-          },
-          "roles": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Role"
-            },
-            "minItems": 5,
-            "maxItems": 5
-          },
-          "total_cost_rub": {
-            "type": "number",
-            "exclusiveMinimum": 0
-          },
-          "max_bargaining_turns": {
-            "type": "integer",
-            "minimum": 1
-          }
-        },
-        "required": [
-          "title",
-          "briefing",
-          "roles",
-          "total_cost_rub",
-          "max_bargaining_turns"
-        ],
-        "additionalProperties": false
-      },
-      "StartRequest": {
-        "type": "object",
-        "properties": {
-          "strategies": {
-            "type": "object",
-            "properties": {
-              "city_administration": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S",
-                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
-              },
-              "industrial_holding": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S",
-                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
-              },
-              "regional_government": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S",
-                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
-              },
-              "city_residents": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S",
-                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
-              },
-              "environmental_ngo": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "\\S",
-                "description": "Стратегия роли. Пустое поле форма передаёт как отсутствие свойства."
-              }
-            },
-            "required": [],
-            "additionalProperties": false
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "StartResponse": {
-        "type": "object",
-        "properties": {
-          "game_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "status": {
-            "const": "queued"
-          },
-          "status_url": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "game_id",
-          "status",
-          "status_url"
-        ],
-        "additionalProperties": false
-      },
-      "PendingGame": {
-        "type": "object",
-        "properties": {
-          "game_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "queued",
-              "running"
-            ]
-          },
-          "progress": {
-            "$ref": "#/components/schemas/Progress"
-          }
-        },
-        "required": [
-          "game_id",
-          "status"
-        ],
-        "additionalProperties": false
-      },
-      "CompletedGame": {
-        "type": "object",
-        "properties": {
-          "game_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "status": {
-            "const": "completed"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Result"
-          }
-        },
-        "required": [
-          "game_id",
-          "status",
-          "result"
-        ],
-        "additionalProperties": false
-      },
-      "FailedGame": {
-        "type": "object",
-        "properties": {
-          "game_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "status": {
-            "const": "failed"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          },
-          "progress": {
-            "$ref": "#/components/schemas/Progress"
-          }
-        },
-        "required": [
-          "game_id",
-          "status",
-          "error"
-        ],
-        "additionalProperties": false
-      },
-      "Game": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PendingGame"
-          },
-          {
-            "$ref": "#/components/schemas/CompletedGame"
-          },
-          {
-            "$ref": "#/components/schemas/FailedGame"
-          },
-          {
-            "$ref": "#/components/schemas/CancelledGame"
-          }
-        ]
-      },
-      "Contribution": {
-        "type": "object",
+      "RoleAnalysis": {
         "properties": {
           "role_id": {
-            "$ref": "#/components/schemas/RoleId"
+            "type": "string",
+            "title": "Role Id"
           },
-          "pledged_rub": {
-            "type": "number",
-            "minimum": 0
+          "paragraph": {
+            "type": "string",
+            "title": "Paragraph"
           },
-          "spent_on_conditions_rub": {
-            "type": "number",
-            "minimum": 0
+          "observation": {
+            "type": "string",
+            "title": "Observation"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisReference"
+            },
+            "type": "array",
+            "title": "References"
+          },
+          "strategy_excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Excerpt"
+          },
+          "suggested_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Strategy"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/MoveReview"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Message Ids"
+          },
+          "missing_message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Message Ids"
           }
         },
+        "type": "object",
         "required": [
           "role_id",
-          "pledged_rub",
-          "spent_on_conditions_rub"
+          "paragraph",
+          "observation",
+          "references",
+          "strategy_excerpt",
+          "suggested_strategy",
+          "findings",
+          "message_ids",
+          "missing_message_ids"
         ],
-        "additionalProperties": false
+        "title": "RoleAnalysis"
       },
-      "Condition": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "owner_role_id": {
-            "$ref": "#/components/schemas/RoleId"
-          },
-          "value": {
-            "type": [
-              "boolean",
-              "integer",
-              "string"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "owner_role_id",
-          "value"
-        ],
-        "additionalProperties": false
-      },
-      "Vote": {
-        "type": "object",
+      "RoleSettings": {
         "properties": {
           "role_id": {
-            "$ref": "#/components/schemas/RoleId"
+            "type": "string",
+            "title": "Role Id"
           },
-          "value": {
+          "control_mode": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "human"
+            ],
+            "title": "Control Mode"
+          },
+          "pledged_rub": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pledged Rub"
+          },
+          "conditions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Conditions"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 6000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role_id",
+          "control_mode",
+          "pledged_rub",
+          "conditions"
+        ],
+        "title": "RoleSettings"
+      },
+      "RoleSettingsSchema": {
+        "properties": {
+          "pledged_rub_max": {
+            "type": "integer",
+            "title": "Pledged Rub Max"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/ConditionSchema"
+            },
+            "type": "array",
+            "title": "Conditions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pledged_rub_max",
+          "conditions"
+        ],
+        "title": "RoleSettingsSchema"
+      },
+      "RoleVote": {
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "vote": {
+            "type": "string",
             "enum": [
               "for",
               "against",
-              "abstain",
-              null
-            ]
-          },
-          "status": {
-            "enum": [
-              "ok",
-              "invalid_response"
-            ]
+              "abstain"
+            ],
+            "title": "Vote"
           }
         },
+        "type": "object",
         "required": [
           "role_id",
-          "value",
-          "status"
+          "vote"
         ],
-        "additionalProperties": false,
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "status": {
-                  "const": "invalid_response"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "value": {
-                  "const": null
-                }
-              }
-            },
-            "else": {
-              "properties": {
-                "value": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        ]
+        "title": "RoleVote"
       },
-      "Turn": {
-        "type": "object",
+      "SavedRoleSettings": {
         "properties": {
-          "turn": {
-            "type": "integer",
-            "minimum": 1
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
           },
-          "phase": {
+          "control_mode": {
             "type": "string",
             "enum": [
-              "opening",
-              "bargaining",
-              "last_call",
-              "voting"
-            ]
-          },
-          "role_id": {
-            "$ref": "#/components/schemas/RoleId"
-          },
-          "text": {
-            "type": "string"
-          },
-          "actions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "status": {
-            "enum": [
-              "ok",
-              "invalid_response"
-            ]
-          }
-        },
-        "required": [
-          "turn",
-          "phase",
-          "role_id",
-          "text",
-          "actions",
-          "status"
-        ],
-        "additionalProperties": false
-      },
-      "Consequences": {
-        "type": "object",
-        "properties": {
-          "outcome_id": {
-            "type": "string"
-          },
-          "outcome_title": {
-            "type": "string"
-          },
-          "executed_rub": {
-            "type": "number",
-            "minimum": 0
-          },
-          "commissioning_month": {
-            "type": [
-              "integer",
-              "null"
+              "ai",
+              "human"
             ],
-            "minimum": 1
-          },
-          "report_markdown": {
-            "type": "string"
-          },
-          "herald_text": {
-            "type": "string"
-          },
-          "image_url": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "outcome_id",
-          "outcome_title",
-          "executed_rub",
-          "commissioning_month",
-          "report_markdown",
-          "herald_text",
-          "image_url"
-        ],
-        "additionalProperties": false
-      },
-      "Result": {
-        "type": "object",
-        "properties": {
-          "accepted": {
-            "type": "boolean"
-          },
-          "total_cost_rub": {
-            "type": "number",
-            "exclusiveMinimum": 0
+            "title": "Control Mode"
           },
           "pledged_rub": {
-            "type": "number",
-            "minimum": 0
-          },
-          "deficit_rub": {
-            "type": "number",
-            "minimum": 0
-          },
-          "contributions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Contribution"
-            },
-            "minItems": 5,
-            "maxItems": 5
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pledged Rub"
           },
           "conditions": {
-            "type": "array",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Conditions"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          },
+          "spent_on_conditions_rub": {
+            "type": "integer",
+            "title": "Spent On Conditions Rub"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role_id",
+          "control_mode",
+          "pledged_rub",
+          "conditions",
+          "spent_on_conditions_rub"
+        ],
+        "title": "SavedRoleSettings"
+      },
+      "SavedSettings": {
+        "properties": {
+          "roles": {
             "items": {
-              "$ref": "#/components/schemas/Condition"
-            }
+              "$ref": "#/components/schemas/SavedRoleSettings"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "setup_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "automatic"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "roles"
+        ],
+        "title": "SavedSettings"
+      },
+      "Scenario": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "briefing": {
+            "type": "string",
+            "title": "Briefing"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "role_order": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Role Order"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "total_cost_rub": {
+            "type": "integer",
+            "title": "Total Cost Rub"
+          },
+          "max_bargaining_turns": {
+            "type": "integer",
+            "title": "Max Bargaining Turns"
+          },
+          "max_dialogue_messages": {
+            "type": "integer",
+            "title": "Max Dialogue Messages",
+            "default": 15
+          },
+          "questionnaires": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Questionnaire"
+            },
+            "type": "object",
+            "title": "Questionnaires"
+          },
+          "role_settings_schema": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RoleSettingsSchema"
+            },
+            "type": "object",
+            "title": "Role Settings Schema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "briefing",
+          "version",
+          "role_order",
+          "roles",
+          "total_cost_rub",
+          "max_bargaining_turns",
+          "role_settings_schema"
+        ],
+        "title": "Scenario"
+      },
+      "Settings": {
+        "properties": {
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/RoleSettings"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 5,
+            "title": "Roles"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "roles"
+        ],
+        "title": "Settings"
+      },
+      "Speech": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "speech",
+            "title": "Type"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 6000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "content"
+        ],
+        "title": "Speech"
+      },
+      "SpeechRequest": {
+        "properties": {
+          "input_id": {
+            "type": "string",
+            "title": "Input Id"
+          },
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "speech",
+            "title": "Type"
+          },
+          "turn_id": {
+            "type": "string",
+            "title": "Turn Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_id",
+          "role_id",
+          "type",
+          "turn_id"
+        ],
+        "title": "SpeechRequest"
+      },
+      "StartGame": {
+        "properties": {
+          "strategies": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Strategies"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StartGame"
+      },
+      "StateChanged": {
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "title": "Event Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "settings.saved",
+              "phase.changed",
+              "turn.started",
+              "input.requested",
+              "input.resolved",
+              "pause.changed",
+              "vote.closed",
+              "game.completed",
+              "game.cancelled",
+              "game.failed"
+            ],
+            "title": "Type"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "type",
+          "payload"
+        ],
+        "title": "StateChanged"
+      },
+      "VoteRequest": {
+        "properties": {
+          "input_id": {
+            "type": "string",
+            "title": "Input Id"
+          },
+          "role_id": {
+            "type": "string",
+            "title": "Role Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "vote",
+            "title": "Type"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "title": "Protocol Version"
+          },
+          "allowed_votes": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "for",
+                "against",
+                "abstain"
+              ]
+            },
+            "type": "array",
+            "title": "Allowed Votes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_id",
+          "role_id",
+          "type",
+          "protocol_version",
+          "allowed_votes"
+        ],
+        "title": "VoteRequest"
+      },
+      "VoteSummary": {
+        "properties": {
+          "for": {
+            "type": "integer",
+            "title": "For"
+          },
+          "against": {
+            "type": "integer",
+            "title": "Against"
+          },
+          "abstain": {
+            "type": "integer",
+            "title": "Abstain"
           },
           "votes": {
-            "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Vote"
+              "$ref": "#/components/schemas/RoleVote"
             },
-            "minItems": 5,
-            "maxItems": 5
-          },
-          "transcript": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Turn"
-            }
-          },
-          "consequences": {
-            "$ref": "#/components/schemas/Consequences"
-          },
-          "negotiation_report_markdown": {
-            "type": "string"
-          },
-          "budget_closed": {
-            "type": "boolean"
+            "title": "Votes"
           }
         },
-        "required": [
-          "accepted",
-          "total_cost_rub",
-          "pledged_rub",
-          "deficit_rub",
-          "contributions",
-          "conditions",
-          "votes",
-          "transcript",
-          "consequences",
-          "negotiation_report_markdown",
-          "budget_closed"
-        ],
-        "additionalProperties": false
-      },
-      "Error": {
         "type": "object",
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        },
         "required": [
-          "code",
-          "message"
+          "for",
+          "against",
+          "abstain",
+          "votes"
         ],
-        "additionalProperties": false
-      },
-      "Progress": {
-        "type": "object",
-        "properties": {
-          "transcript": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Turn"
-            }
-          },
-          "report_markdown": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "transcript",
-          "report_markdown"
-        ],
-        "additionalProperties": false
-      },
-      "CancelledGame": {
-        "type": "object",
-        "properties": {
-          "game_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "status": {
-            "const": "cancelled"
-          },
-          "progress": {
-            "$ref": "#/components/schemas/Progress"
-          }
-        },
-        "required": [
-          "game_id",
-          "status"
-        ],
-        "additionalProperties": false
+        "title": "VoteSummary"
       }
     }
   }

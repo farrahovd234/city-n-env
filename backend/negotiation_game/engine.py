@@ -5,19 +5,21 @@ import asyncio
 import copy
 import json
 import random
+import re
 import zlib
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 from langchain_core.exceptions import OutputParserException
+from openai import APIError
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from .schemas import (
     PlayerTurn, player_turn_tool_schema,
-    normalize_player_turn, player_turn_examples,
+    normalize_player_turn, player_turn_examples, public_speech, repeats_position,
 )
-from .rules import prepare_player_turn, is_owner
+from .rules import prepare_player_turn, is_owner, project_funding, questionnaire_game
 from .run_store import RunStore
 from .report import (
     format_money,
@@ -40,6 +42,13 @@ RAG_ROLE_BY_PLAYER_ID = {
     "regional_government": "region",
     "city_residents": "residents",
     "environmental_ngo": "ngo",
+}
+CLARIFICATION_BY_ROLE = {
+    "city_administration": "Холдинг и область, какие взносы вы готовы подтвердить в протоколе?",
+    "industrial_holding": "Регион, какие условия нужны для согласования налоговых льгот?",
+    "regional_government": "Холдинг, что нужно согласовать, чтобы вы подтвердили свой взнос и срок реконструкции?",
+    "city_residents": "Администрация, как вы предлагаете обеспечить жителей питьевой водой до запуска очистных?",
+    "environmental_ngo": "Холдинг, какой режим работы вы готовы зафиксировать до запуска новых очистных?",
 }
 
 
@@ -206,10 +215,30 @@ class NegotiationEngine:
 
     async def _structured_turn(self, current: dict, phase: str, turn: int, messages: list,
                          state: dict, levers_config: list[dict], total_cost: float,
-                         voting: bool = False) -> tuple[PlayerTurn | None, dict]:
-        """Один ответ и одна попытка исправления; без текстового парсера."""
+                         voting: bool = False, *, forced_against: str | None = None) -> tuple[PlayerTurn | None, dict]:
+        """Проверяет структурированный ход и при необходимости запрашивает уточнение."""
         # method=function_calling не требует нативной строгой JSON Schema у провайдера.
         # Если модель не поддерживает tools, завершаем запуск с явной ошибкой.
+        session = getattr(self, "session", None)
+        if session is not None:
+            role_id = current["profile"]["id"]
+            response, instructions = await session.begin_turn(role_id, turn, voting)
+            if response is not None:
+                answer = PlayerTurn(speech=response.get("content", "Голос игрока принят."),
+                                    vote=response.get("vote"), own_contribution_millions=None,
+                                    own_levers={}, demands=[], responses=[], withdrawn_demands=[], addressed_to=None)
+                _, action = prepare_player_turn(answer, current["name"], state, levers_config, total_cost, voting)
+                return answer, action
+            if instructions:
+                messages = [*messages, HumanMessage(content="Инструкции игрока для этой роли:\n" + "\n".join(instructions))]
+        if forced_against is not None:
+            answer = PlayerTurn(speech=forced_against, vote="against", own_contribution_millions=None,
+                                own_levers={}, demands=[], responses=[], withdrawn_demands=[], addressed_to=None)
+            _, action = prepare_player_turn(answer, current["name"], state, levers_config, total_cost, voting)
+            return answer, action
+        allow_abstain = "contribution_cap" not in state["players"][current["name"]]
+        questionnaire_speech = not allow_abstain and not voting
+        voting_choices = "for/against/abstain" if allow_abstain else "for/against"
         llm = current["llm"]
         timeout = float(getattr(self, "request_timeout_seconds", 60))
         # ChatOpenAI уже содержит созданные SDK-клиенты. Одного model_copy с
@@ -220,14 +249,22 @@ class NegotiationEngine:
             llm = llm.model_copy(update={"request_timeout": timeout, "max_retries": 0,
                 "root_client": root, "client": root.chat.completions,
                 "root_async_client": async_root, "async_client": async_root.chat.completions})
-        structured = llm.with_structured_output(
-            player_turn_tool_schema(state["player_ids"], voting, levers_config),
-            method="function_calling", include_raw=True)
         # Имена владельцев в настройках могут быть полными названиями ролей.
         # Разрешаем их тем же правилом, что использует игровой валидатор.
         contract_levers = [{**lever, "owner": next(
             (name for name in state["player_ids"].values() if is_owner(lever.get("owner", ""), name)),
             lever.get("owner"))} for lever in levers_config]
+        structured = llm.with_structured_output(
+            player_turn_tool_schema(state["player_ids"], voting, contract_levers, current["name"],
+                                    allow_abstain=allow_abstain),
+            method="function_calling", include_raw=True)
+        owned_ids = [lever["id"] for lever in contract_levers if lever["owner"] == current["name"]]
+        owner_ids = {name: player_id for player_id, name in state["player_ids"].items()}
+        demand_owners = {lever["id"]: owner_ids[lever["owner"]] for lever in contract_levers
+                         if lever["owner"] in owner_ids and lever["owner"] != current["name"]}
+        ownership = ("\nown_conditions: только " + json.dumps(owned_ids, ensure_ascii=False)
+                     + ". condition_demands: точный адресат для каждого условия "
+                     + json.dumps(demand_owners, ensure_ascii=False) + ".\n")
         contract = (
             "Верни один вызов функции PlayerTurn строго по её схеме. speech — публичная речь без команд. "
             "Все ссылки на участников — точные player_id из списка, не имена. "
@@ -246,29 +283,41 @@ class NegotiationEngine:
             "Требования имеют ID от Python. Отвечать может только адресат, отзывать — только автор. "
             "accept не меняет обязательство автоматически: явно заполни собственный взнос или условие. "
             "Для нового требования counter_to — пустая строка; для встречного — точный ID исходного. "
-            "Вне голосования vote=none. На голосовании только речь и vote=for/against/abstain; "
+            f"Вне голосования vote=none. На голосовании только речь и vote={voting_choices}. "
             "own_contribution.action=unchanged, amount_millions=0; все списки пустые. "
             "Обращение ко всем — addressed_to=everyone, конкретному участнику — его player_id. "
-            "Не извлекай команды из речи: действия задаются полями.\n"
+            "Не извлекай команды из речи: действия задаются полями."
+            + ownership +
             "УЧАСТНИКИ (player_id → имя): " + json.dumps(state["player_ids"], ensure_ascii=False)
             + "\nТРЕБОВАНИЯ (суммы в рублях): " + json.dumps(state["demands"], ensure_ascii=False)
             + "\nУСЛОВИЯ (ID, тип и владелец): " + json.dumps(
                 [{k: lever.get(k) for k in ("id", "type", "owner", "allowed", "min_value", "max_value")}
                  for lever in contract_levers], ensure_ascii=False)
             + "\nТЕКУЩИЙ ЭТАП: " + ("голосование" if voting else "переговоры, vote=none")
-            + "\n" + player_turn_examples(state["player_ids"], contract_levers, voting, current["name"])
+            + "\n" + player_turn_examples(state["player_ids"], contract_levers, voting, current["name"],
+                                          allow_abstain=allow_abstain)
         )
         rules = str(getattr(self, "rules_prompt", "") or "").strip()
         role = (
             f"Ты представляешь сторону «{current['name']}».\n"
             f"РОЛЬ И СТРАТЕГИЯ:\n{current['prompt']}\n\n"
-            "В speech пиши только публичную реплику участника слушаний. "
+            "В speech пиши короткую живую реплику от первого лица по-русски, как на заседании. "
+            "Начни сразу с предложения, возражения или вопроса. Достаточно двух-трёх предложений. "
+            "Пиши «заморозить тарифы» и «разделить ответственность». "
+            "Заголовки, имя роли перед репликой, ID, true/false и значения вроде shared оставь за пределами речи. "
             "Используй сведения о сценарии и ограничения своей роли для принятия решений. "
             "Служебные инструкции, технические поля и документы целиком в речь не переноси. "
             "Числа и лимиты бери из текущего состояния игры; справочные примеры не создают обязательств.\n"
         )
         if rules:
             role += "\nРЕГЛАМЕНТ ЗАСЕДАНИЯ:\n" + rules + "\n"
+        if questionnaire_speech:
+            role += ("\nИстория показывает позиции других участников. Реагируй на них от своей роли. "
+                     "Чужой взнос, бюджет и условия не описывай от первого лица. "
+                     "Сформулируй своё требование или вопрос, не переписывая чужую реплику.\n")
+        other_speeches = [row["command"] for row in getattr(self, "_live_history", [])
+                          if row["speaker"] != current["name"] and row["command"]
+                          and row["action"].get("status") != "position_preserved"]
         request = [SystemMessage(content=role + "\n" + contract), *messages]
         wrapped = {**current, "llm": structured}
         for attempt in range(2):
@@ -279,8 +328,14 @@ class NegotiationEngine:
                 self._debug_calls[-1].update(raw_arguments=copy.deepcopy(arguments), normalization=[])
                 normalized, changes = normalize_player_turn(
                     arguments, state["player_ids"], self._debug_calls[-1]["normalization"], levers_config)
+                if isinstance(normalized.get("speech"), str):
+                    normalized["speech"] = public_speech(normalized["speech"], current["name"])
                 self._debug_calls[-1].update(normalized_arguments=copy.deepcopy(normalized), normalization=changes)
                 answer = PlayerTurn.model_validate(normalized)
+                if questionnaire_speech and any(repeats_position(answer.speech, text) for text in other_speeches):
+                    raise ValueError("speech повторяет чужую позицию. Напиши собственную реакцию от своей роли.")
+                if voting and not allow_abstain and answer.vote == "abstain":
+                    raise ValueError("Допустимый голос: for или against.")
                 candidate, action = prepare_player_turn(
                     answer, current["name"], state, levers_config, total_cost, voting)
             except (ValidationError, ValueError, OutputParserException) as exc:
@@ -289,9 +344,12 @@ class NegotiationEngine:
                           if isinstance(exc, ValidationError) else [{"loc": [], "msg": str(exc)}])
                 self._debug_calls[-1]["validation_errors"] = errors
                 if attempt == 0:
+                    repair = arguments
+                    if questionnaire_speech and isinstance(arguments, dict):
+                        repair = {key: value for key, value in arguments.items() if key != "speech"}
                     request.append(HumanMessage(content=(
                         "Ответ не применён. Исправь весь PlayerTurn и верни один вызов функции.\n"
-                        "Исходные аргументы JSON: " + json.dumps(arguments, ensure_ascii=False)
+                        "Исходные аргументы JSON: " + json.dumps(repair, ensure_ascii=False)
                         + "\nОшибки по полям: " + json.dumps(errors, ensure_ascii=False)
                         + "\nДопустимые player_id: " + json.dumps(list(state["player_ids"]), ensure_ascii=False)
                         + "\nДля обращения ко всем используй addressed_to=everyone. Не угадывай ID. "
@@ -299,11 +357,21 @@ class NegotiationEngine:
                         "в pledge_demands, требования условий — в condition_demands. "
                         "value_json — значение строкой: true, false, 36, 70%, holding. "
                         "Только точные значения из ограничений условия. "
-                        "Собственные условия запиши в own_conditions, требования — другому владельцу условия. "
+                        "Собственные условия запиши в own_conditions, требования — точному владельцу из карты ниже. "
                         "counter_to для нового требования — пустая строка. "
+                        "При сомнении в корректности действия оставь списки пустыми и изложи публичную позицию. "
+                        + ownership
                         + ("На голосовании меняются только speech и vote.\n" if voting else "Вне голосования vote=none.\n")
-                        + player_turn_examples(state["player_ids"], contract_levers, voting, current["name"]))))
+                        + player_turn_examples(state["player_ids"], contract_levers, voting, current["name"],
+                                               allow_abstain=allow_abstain))))
                     continue
+                if questionnaire_speech:
+                    speech = await self._clarify_position({**current, "llm": llm}, phase, turn, state, total_cost)
+                    answer = PlayerTurn(speech=speech, vote=None, own_contribution_millions=None,
+                                        own_levers={}, demands=[], responses=[], withdrawn_demands=[], addressed_to=None)
+                    _, action = prepare_player_turn(answer, current["name"], state, levers_config, total_cost)
+                    action["status"] = "position_preserved"
+                    return answer, action
                 return None, {"type": "VOTE" if voting else "SKIPPED",
                               "vote": None, "status": "invalid_response", "applied": [],
                               "message": "Ход пропущен: корректный ответ не получен.",
@@ -311,6 +379,38 @@ class NegotiationEngine:
             state.clear()
             state.update(candidate)
             return answer, action
+
+    async def _clarify_position(self, current: dict, phase: str, turn: int, state: dict, total_cost: float) -> str:
+        """Продолжает диалог после двух некорректных ответов, сохраняя протокол."""
+        speaker = current["name"]
+        history = getattr(self, "_live_history", [])
+        prompt = [
+            SystemMessage(content=(
+                f"Ты представляешь сторону «{speaker}». Задай один короткий предметный вопрос "
+                "другой стороне по её предложению или нерешённому условию твоей стратегии. "
+                "Ответь одним вопросительным предложением по-русски без цифр. "
+                "Попроси уточнить или подтвердить предложение. Не объявляй новые обязательства, "
+                "изменения протокола, выплаченные суммы или результаты голосования."
+            )),
+            HumanMessage(content=(
+                f"Стратегия твоей стороны:\n{current['prompt']}\n\n"
+                f"{render_calculator(state, total_cost)}\n\n"
+                f"Недавние реплики:\n{render_history(history[-5:])}"
+            )),
+        ]
+        try:
+            async with asyncio.timeout(min(8.0, float(getattr(self, "request_timeout_seconds", 60)))):
+                response = await self._invoke_model(current, phase, turn, prompt)
+        except (TimeoutError, APIError, RuntimeError):
+            response = None
+        content = getattr(response, "content", None)
+        if isinstance(content, str):
+            speech = public_speech(content, speaker)
+            if re.fullmatch(r"[^.!?…\r\n\d]{8,280}\?", speech) and not any(
+                    repeats_position(speech, row["command"]) for row in history):
+                return speech
+        return CLARIFICATION_BY_ROLE.get(
+            current["profile"]["id"], "Какое условие протокола нам нужно уточнить, чтобы продвинуть переговоры?")
 
     async def _invoke_model(self, current: dict, phase: str, turn: int, messages: list):
         call = {
@@ -402,6 +502,9 @@ class NegotiationEngine:
 
     def _save_progress(self, status="running", error=None):
         store = getattr(self, "_run_store", None)
+        session = getattr(self, "session", None)
+        if status == "running" and session is not None:
+            session.record_history(self._live_history)
         if store is None:
             return None
         state = self._live_state
@@ -541,10 +644,10 @@ class NegotiationEngine:
 
     @staticmethod
     def _build_prompt_phase2(speaker, player_prompt, profile, state, history, rules_prompt, turn_in_phase, max_phase_turns, global_turn, levers_config, total_cost):
-        total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-        deficit = max(0.0, total_cost - total_c)
+        _, deficit = project_funding(state, total_cost)
         banner = f"ЭТАП 2 ИЗ 3: ПЕРЕГОВОРЫ И ТОРГ (Раунд {turn_in_phase} из {max_phase_turns})"
-        banner += f" | ДЕФИЦИТ: {format_money(deficit)}" if deficit > 1000 else " | БЮДЖЕТ СОБРАН"
+        banner += (f" | ДЕФИЦИТ: {format_money(deficit)}"
+                   if deficit > (0 if questionnaire_game(state) else 1000) else " | БЮДЖЕТ СОБРАН")
         incoming = []
         for demand in state.get("demands", []):
             if demand.get("target") != speaker or demand.get("status") != "pending":
@@ -581,7 +684,7 @@ class NegotiationEngine:
         return (
             f"=== 🗳️ ЭТАП 3 ИЗ 3: ГОЛОСОВАНИЕ (Голос {turn_in_phase} из {total_voters}) ===\n\n"
             f"Сторона: {speaker}\n"
-            f"Порог большинства: {majority_threshold} из {total_voters}.\n\n"
+            f"Голосов «за» для принятия: {majority_threshold} из {total_voters}.\n\n"
             f"{render_draft_treaty(state, levers_config, total_cost)}\n\n"
             f"{render_voter_checklist(speaker, profile, state, levers_config, total_cost)}"
         )
@@ -609,7 +712,7 @@ class NegotiationEngine:
                 raise ValueError("Имя игрока не может быть пустым.")
             if not prompt:
                 raise ValueError(f"Промпт пуст для игрока '{name}'.")
-            if llm is None:
+            if llm is None and profile.get("control_mode") != "human":
                 raise ValueError(f"Языковая модель не инициализирована для игрока '{name}'.")
 
             if (getattr(self, "use_rag", True)
@@ -668,6 +771,15 @@ class NegotiationEngine:
             },
             "demands": [],
         }
+        for role in getattr(self, "initial_roles", []):
+            name = names_by_id[role["role_id"]]
+            if "contribution_cap_rub" in role:
+                state["players"][name]["contribution_cap"] = role["contribution_cap_rub"]
+            answer = PlayerTurn(speech="Начальные настройки", vote=None,
+                                own_contribution_millions=role["pledged_rub"] / 1_000_000,
+                                own_levers=role["conditions"], demands=[], responses=[],
+                                withdrawn_demands=[], addressed_to=None)
+            state, _ = prepare_player_turn(answer, name, state, levers_config, total_cost)
 
         return players, names, state, settings_data
 
@@ -782,6 +894,8 @@ class NegotiationEngine:
                 current_idx = name_to_idx[silent_longest]
 
             current = players[current_idx]
+            if getattr(self, "session", None) is not None:
+                current = players[b_turn]
             speaker = current["name"]
             last_speaker_name = speaker
 
@@ -802,9 +916,8 @@ class NegotiationEngine:
                 total_cost=total_cost,
             )
 
-            cur_total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-            cur_deficit = max(0.0, total_cost - cur_total_c)
-            if cur_deficit > 1000:
+            _, cur_deficit = project_funding(state, total_cost)
+            if cur_deficit > (0 if questionnaire_game(state) else 1000):
                 deficit_clause = (
                     f"⚠️ Дефицит бюджета: {format_money(cur_deficit)}. "
                     "Торгуйся, выдвигай встречные требования или предлагай компромиссное финансирование."
@@ -871,7 +984,7 @@ class NegotiationEngine:
 
         # Проверяем, нужен ли Last Call (Финальный раунд закрытия дефицита)
         total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-        if total_c < (total_cost - 100_000.0):
+        if getattr(self, "session", None) is None and total_c < (total_cost - 100_000.0):
             turn_counter = await self._run_last_call(
                 players=players,
                 state=state,
@@ -884,11 +997,10 @@ class NegotiationEngine:
 
         return turn_counter
 
-    async def _run_last_call(self, players: list[dict], state: dict, history: list[dict], rules: str, turn_counter: int, levers_config: list[dict], total_cost: float) -> int:
+    async def _run_last_call(self, players: list[dict], state: dict, history: list[dict], rules: str, turn_counter: int, levers_config: list[dict], total_cost: float, *, amendments: bool = False) -> int:
         for current in players:
-            total_c = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-            cur_deficit = max(0.0, total_cost - total_c)
-            if cur_deficit <= 1000:
+            _, cur_deficit = project_funding(state, total_cost)
+            if not amendments and cur_deficit <= 1000:
                 break
 
             speaker = current["name"]
@@ -898,7 +1010,7 @@ class NegotiationEngine:
             spent_levers = p_state.get("spent_on_levers", 0.0)
             available_money = max(0.0, base_budget - spent_levers - current_contrib)
 
-            if base_budget <= 0 and not any(l["owner"] == speaker for l in levers_config):
+            if not amendments and base_budget <= 0 and not any(l["owner"] == speaker for l in levers_config):
                 continue
 
             turn_counter += 1
@@ -922,6 +1034,14 @@ class NegotiationEngine:
                 "Это твой последний шанс подтвердить или увеличить свой взнос, скорректировать параметры или согласовать компромисс. "
                 "Если ты не можешь увеличить взнос, подтверди свою окончательную позицию."
             )
+
+            if amendments:
+                system_message = (
+                    "РАУНД 3: ПОПРАВКИ. Предложи поправку к текущим договорённостям или подтверди позицию. "
+                    "Учитывай все опубликованные реплики. Меняй только обязательства своей роли."
+                )
+                prompt = (f"Сторона: {speaker}\n\n{render_draft_treaty(state, levers_config, total_cost)}"
+                          f"\n\n{render_history(history)}")
 
             prompt += "\n\n" + await self._rag_context(speaker, current["profile"], history, 2, retrieve=False)
 
@@ -948,9 +1068,11 @@ class NegotiationEngine:
 
     async def _run_phase3(self, players: list[dict], state: dict, history: list[dict], turn_counter: int, levers_config: list[dict], total_cost: float) -> dict:
         num_players = len(players)
-        total_money = sum(v["contribution"] for v in state["players"].values() if v.get("contribution") is not None)
-        deficit = max(0.0, total_cost - total_money)
-        majority_threshold = (num_players // 2) + 1
+        total_money, deficit = project_funding(state, total_cost)
+        session = getattr(self, "session", None)
+        majority_threshold = num_players if session is not None else (num_players // 2) + 1
+        questionnaire_vote = session is not None and getattr(session, "uses_questionnaires", False)
+        budget_closed = deficit <= (0 if questionnaire_vote else 100_000.0)
 
         voting_records = []
 
@@ -971,26 +1093,44 @@ class NegotiationEngine:
                 total_cost=total_cost,
             )
 
-            deficit_info = f"Текущий статус бюджета проекта: {'⚠️ ДЕФИЦИТ ' + format_money(deficit) if deficit > 100_000.0 else '✅ ПОЛНОСТЬЮ ЗАКРЫТ'}. "
+            deficit_info = f"Текущий статус бюджета проекта: {'✅ ПОЛНОСТЬЮ ЗАКРЫТ' if budget_closed else '⚠️ ДЕФИЦИТ ' + format_money(deficit)}. "
+            voting_rule = ("Голосуй ЗА только при полной смете и выполнении ключевых условий из своей анкеты. "
+                           "В остальных случаях голосуй ПРОТИВ. "
+                           if questionnaire_vote else
+                           "Прими взвешенное решение: если компромисс приемлем, допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ. ")
             system_message = (
                 "ИДЕТ ЭТАП 3: ФИНАЛЬНОЕ ПОИМЕННОЕ ГОЛОСОВАНИЕ ПО ПРОЕКТУ СОГЛАШЕНИЯ. "
                 "Оцени зафиксированный Проект Соглашения строго с точки зрения интересов и красных линий своей роли. "
                 f"{deficit_info}"
-                "Прими взвешенное решение: если компромисс приемлем, допустимо голосовать ЗА или ВОЗДЕРЖАЛСЯ. "
+                f"{voting_rule}"
                 "Не вспоминай эмоциональные споры из диалога — голосуй исключительно по тексту Соглашения и своему чек-листу! "
                 "Верни структурированный голос в vote, обоснование — в speech. "
-                f"Соглашение принимается большинством голосов (не менее {majority_threshold} из {num_players}). Дефицит бюджета (при наличии) фиксируется в протоколе для покрытия из резервных фондов."
+                + (f"Соглашение принимается единогласно ({num_players} из {num_players}). " if session is not None else
+                   f"Соглашение принимается большинством голосов (не менее {majority_threshold} из {num_players}). ")
             )
+            if not questionnaire_vote:
+                system_message += "Дефицит бюджета (при наличии) фиксируется в протоколе для покрытия из резервных фондов."
 
-            prompt += "\n\n" + await self._rag_context(speaker, current["profile"], history, 3, retrieve=False)
+            if session is not None:
+                prompt += "\n\nПрогноз по протоколу:\n" + session.forecast_context()
+            if not questionnaire_vote:
+                prompt += "\n\n" + await self._rag_context(speaker, current["profile"], history, 3, retrieve=False)
 
+            forced_against = None
+            if questionnaire_vote:
+                objections = ([f"до полной сметы не хватает {format_money(deficit)}"] if not budget_closed else
+                              session.vote_objections(current["profile"]["id"], state))
+                if objections:
+                    forced_against = "Голосую против. В проекте " + ", ".join(objections) + "."
             answer, action = await self._structured_turn(
                 current, "Голосование", turn_counter,
                 [SystemMessage(content=system_message), HumanMessage(content=prompt)],
-                state, levers_config, total_cost, voting=True,
+                state, levers_config, total_cost, voting=True, forced_against=forced_against,
             )
             command = answer.speech if answer is not None else ""
             vote_decision = action["vote"]
+            if session is not None and vote_decision is None:
+                raise ValueError("Не получен действительный голос роли")
             vote_comment = action["comment"]
 
             voting_records.append({
@@ -1015,9 +1155,7 @@ class NegotiationEngine:
         votes_for = sum(1 for v in voting_records if v["vote"] == "ЗА")
         votes_against = sum(1 for v in voting_records if v["vote"] == "ПРОТИВ")
         votes_abstain = sum(1 for v in voting_records if v["vote"] == "ВОЗДЕРЖАЛСЯ")
-        # Протокол принимается демократическим большинством голосов
-        budget_closed = (deficit <= 100_000.0)
-        protocol_passed = (votes_for >= majority_threshold)
+        protocol_passed = votes_for >= majority_threshold and (budget_closed or not questionnaire_vote)
 
         voting_summary = {
             "records": voting_records,
@@ -1081,16 +1219,30 @@ class NegotiationEngine:
             max_turns = max(5, int(settings_data.get("max_rounds") or getattr(self, "turns", 15) or 15))
             self._live_players, self._live_history = players, history
             self._live_state, self._live_cost, self._live_levers = state, total_cost, levers_config
-            self._run_store = run_store if run_store is not None else RunStore()
+            session = getattr(self, "session", None)
+            if session is None or run_store is not None:
+                self._run_store = run_store if run_store is not None else RunStore()
             self._save_progress()
-            async with asyncio.timeout(game_timeout):
+            if session is not None:
+                await session.begin_phase("positions")
+            async with asyncio.timeout(game_timeout if session is None else None):
                 turn_counter = await self._run_phase1(players, state, history, rules, 0, levers_config, total_cost)
+                if session is not None:
+                    await session.begin_phase("negotiation")
+                    max_turns = len(players)
                 turn_counter = await self._run_phase2(players, state, history, rules, turn_counter, max_turns, levers_config, total_cost)
+                if session is not None:
+                    await session.begin_phase("amendments")
+                    turn_counter = await self._run_last_call(players, state, history, rules, turn_counter,
+                                                          levers_config, total_cost, amendments=True)
+                    await session.prepare_protocol(state, [p["profile"] for p in players], total_cost, levers_config)
+                    await session.begin_phase("voting")
                 result = await self._run_phase3(players, state, history, turn_counter, levers_config, total_cost)
             result["status"] = "completed"
             result["error"] = None
             result["debug"] = self._debug_data(history, state)
-            self._run_store.save(result)
+            if self._run_store is not None:
+                self._run_store.save(result)
             self.status = "Игра завершена"
             return result
         except asyncio.CancelledError:

@@ -8,17 +8,21 @@ import os
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from negotiation_game.engine import NegotiationEngine
 from negotiation_game.run_store import RunStore
 
+from .analysis_api import register_analysis_routes
 from .results import illustration, public_game
+from .game_contract import ERROR_RESPONSES, GameSnapshot
 from .scenario import CONFIG, ROLE_IDS, ROOT, build_rag, game_profiles, game_settings, public_scenario
+from .session_api import InteractiveGames, KeyHeader, cancel_interactive, register_session_routes
 
 
 logger = logging.getLogger(__name__)
@@ -49,10 +53,11 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
                embedding_api_key=None, game_options=None) -> FastAPI:
     runs = Path(runs_dir or os.getenv("CITY_N_RUNS_DIR") or ROOT / "games" / "web").expanduser().resolve()
     factory = model_factory or configured_model
-    images = os.getenv("CITY_N_IMAGES") == "1" if images is None else images
+    images = os.getenv("CITY_N_IMAGES", "1") == "1" if images is None else images
     embedding_url = os.getenv("CITY_N_EMBEDDING_BASE_URL", "") if embedding_base_url is None else embedding_base_url
     embedding_key = os.getenv("CITY_N_EMBEDDING_API_KEY", "") if embedding_api_key is None else embedding_api_key
     options = {**CONFIG["game"], **(game_options or {})}
+    interactive = InteractiveGames(runs, factory, options, images)
     jobs: dict[str, asyncio.Task] = {}
     unsaved_results: dict[str, dict] = {}
 
@@ -88,19 +93,20 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.rag = build_rag(runs, embedding_url, embedding_key)
+        interactive.initialize(app.state.rag)
         try:
             yield
         finally:
+            await interactive.shutdown()
             await asyncio.gather(*(stop_game(game_id) for game_id in tuple(jobs)))
 
-    contract = json.loads(Path(__file__).with_name("openapi.json").read_text(encoding="utf-8"))
-    app = FastAPI(title=contract["info"]["title"], version=contract["info"]["version"], lifespan=lifespan)
-    app.openapi = lambda: contract
+    app = FastAPI(title="Город N", version="1.0.0", lifespan=lifespan)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):
+        fields = [{"path": list(item["loc"][1:]), "message": item["msg"]} for item in exc.errors()]
         return JSONResponse({"code": "invalid_game_input",
-                             "message": "Проверьте формат запроса и стратегии ролей."}, status_code=422)
+                             "message": "Проверьте поля запроса.", "field_errors": fields}, status_code=422)
 
     @app.exception_handler(HTTPException)
     async def http_error(request, exc):
@@ -125,8 +131,13 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
     async def scenario():
         return public_scenario()
 
-    @app.post("/api/v1/games", status_code=202)
-    async def start_game(body: StartGame, response: Response):
+    @app.post("/api/v1/games", status_code=201, response_model=GameSnapshot,
+              responses={**ERROR_RESPONSES, 202: {"description": "Прежний режим автоматического запуска"}})
+    async def start_game(request: Request, response: Response, body: StartGame | None = None, key: KeyHeader = None):
+        if body is None or key is not None:
+            if body is not None and body.strategies:
+                raise HTTPException(422, detail={"code": "INVALID_SETTINGS", "message": "Сохраните стратегии через PUT settings.", "field_errors": []})
+            return interactive.create(request, response, key)
         game_id = uuid4().hex
         store = RunStore(runs, game_id)
         store.save({"status": "queued", "history": [], "report": "# Партия в очереди\n"})
@@ -135,20 +146,27 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
         job.add_done_callback(lambda _: jobs.pop(game_id, None))
         url = f"/api/v1/games/{game_id}"
         response.headers["Location"] = url
-        return {"game_id": game_id, "status": "queued", "status_url": url}
+        return JSONResponse({"game_id": game_id, "status": "queued", "status_url": url}, status_code=202,
+                            headers={"Location": url})
 
-    @app.get("/api/v1/games/{game_id}")
-    async def get_game(game_id: str):
-        return public_game(game_id, read_game(game_id), images)
+    @app.get("/api/v1/games/{game_id}", response_model=GameSnapshot, responses=ERROR_RESPONSES)
+    async def get_game(game_id: str, request: Request):
+        session = interactive.get(game_id, request)
+        if session is not None:
+            return session.public()
+        return JSONResponse(public_game(game_id, read_game(game_id), images))
 
-    @app.post("/api/v1/games/{game_id}/cancel")
-    async def cancel_game(game_id: str):
+    @app.post("/api/v1/games/{game_id}/cancel", response_model=GameSnapshot, responses=ERROR_RESPONSES)
+    async def cancel_game(game_id: str, request: Request, key: KeyHeader = None):
+        session = interactive.get(game_id, request)
+        if session is not None:
+            return cancel_interactive(interactive, session, key)
         raw = read_game(game_id)
         if raw["status"] in {"completed", "failed"}:
             raise HTTPException(409, detail={"code": "game_cannot_cancel", "message": "Партия уже завершена."})
         if raw["status"] != "cancelled":
             raw = await stop_game(game_id)
-        return public_game(game_id, raw, images)
+        return JSONResponse(public_game(game_id, raw, images))
 
     @app.get("/api/v1/illustrations/{outcome_id}.png", include_in_schema=False)
     async def get_illustration(outcome_id: str):
@@ -157,6 +175,11 @@ def create_app(*, runs_dir=None, model_factory=None, images=None, embedding_base
             raise HTTPException(404, detail={"code": "illustration_not_found", "message": "Иллюстрация не найдена."})
         return FileResponse(path, media_type="image/png")
 
+    register_session_routes(app, interactive)
+    register_analysis_routes(app, interactive)
+    frontend = ROOT.parent / "frontend"
+    if frontend.is_dir():
+        app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
     return app
 
 

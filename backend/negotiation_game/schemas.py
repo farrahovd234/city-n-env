@@ -1,7 +1,9 @@
 """Схемы и нормализация структурированных ответов игроков."""
 
 import copy
+from difflib import SequenceMatcher
 import json
+import re
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -17,6 +19,40 @@ LeverValue = StrictBool | StrictInt | TurnText
 DemandValue = LeverValue | StrictFloat
 Vote = Literal["for", "against", "abstain"]
 DemandDecision = Literal["accept", "reject", "counter"]
+
+PUBLIC_CONDITIONS = {
+    "tariffs_freeze": {"true": "заморозка тарифов на воду", "false": "тарифы на воду без заморозки"},
+    "tax_relief": {"true": "налоговые льготы для холдинга", "false": "без налоговых льгот для холдинга"},
+    "water_supply": {"true": "подвоз питьевой воды", "false": "без подвоза питьевой воды"},
+    "open_sensors": {"true": "открытые данные датчиков", "false": "закрытые данные датчиков"},
+    "protest_moratorium": {"true": "мораторий на протесты и иски", "false": "сохраняем право на протесты и иски"},
+    "guilt": {"shared": "разделённая ответственность", "holding": "ответственность холдинга", "city": "ответственность города"},
+}
+CONDITION_ASSIGNMENT = rf"\b({'|'.join(PUBLIC_CONDITIONS)})\s*[:=]\s*(true|false|shared|holding|city)\b"
+
+
+def public_speech(speech: str, speaker: str) -> str:
+    """Translate explicit model fields without interpreting any game action."""
+    speech = re.sub(rf"\s*\((?:{CONDITION_ASSIGNMENT}|shared|holding|city)\)", "", speech)
+    speech = re.sub(CONDITION_ASSIGNMENT, lambda match: PUBLIC_CONDITIONS[match[1]].get(match[2], match[0]), speech)
+    speech = re.sub(r"""(?:\bguilt\s*[:=]\s*)?["'«]?\bshared\b["'»]?""",
+                    PUBLIC_CONDITIONS["guilt"]["shared"], speech, flags=re.IGNORECASE)
+    speech = re.sub(rf"^{re.escape(speaker)}:\s*", "", speech, flags=re.IGNORECASE)
+    speech = re.sub(r"^стартовая позиция и требования[.\n]\s*", "", speech, flags=re.IGNORECASE).strip()
+    return speech[:1].upper() + speech[1:]
+
+
+def repeats_position(speech: str, earlier_speech: str) -> bool:
+    """Определяет длинный дословный перенос чужой позиции в новую реплику."""
+    words = re.findall(r"\w+", speech.casefold())
+    if len(words) < 12:
+        return False
+    earlier = re.findall(r"\w+", earlier_speech.casefold())
+    match = SequenceMatcher(None, words, earlier, autojunk=False).find_longest_match()
+    return match.size >= 12 and (
+        match.size * 2 >= len(words)
+        or any(word in {"мы", "наш", "наше", "наши", "нам", "мой"} for word in words[match.a:match.a + match.size])
+    )
 
 
 class TurnSchema(BaseModel):
@@ -142,7 +178,8 @@ class PlayerTurnInput(TurnSchema):
 
 
 def player_turn_tool_schema(player_ids: dict, voting: bool = False,
-                            levers_config: list[dict] | None = None) -> dict:
+                            levers_config: list[dict] | None = None, speaker: str | None = None,
+                            *, allow_abstain: bool = True) -> dict:
     """Транспортная схема; внутренний PlayerTurn проверяется после нормализации.
 
     Два варианта требования разделены для генератора. Игровые проверки остаются
@@ -157,11 +194,21 @@ def player_turn_tool_schema(player_ids: dict, voting: bool = False,
     for title in ("PledgeDemandInput", "ConditionDemandInput"):
         definitions[title]["properties"]["target"] = {
             "type": "string", "enum": ids, "description": "Точный player_id адресата требования"}
-    if levers_config:
-        lever_ids = [lever["id"] for lever in levers_config]
-        for title in ("ConditionInput", "ConditionDemandInput"):
-            definitions[title]["properties"]["lever_id"]["enum"] = lever_ids
     fields = schema["properties"]
+    if levers_config:
+        own = [lever["id"] for lever in levers_config if speaker is None or lever["owner"] == speaker]
+        other = [lever for lever in levers_config if lever["owner"] != speaker]
+        if own:
+            definitions["ConditionInput"]["properties"]["lever_id"]["enum"] = own
+        fields["own_conditions"]["maxItems"] = len(own)
+        if other:
+            definitions["ConditionDemandInput"]["properties"]["lever_id"]["enum"] = [lever["id"] for lever in other]
+            owners = {lever["owner"] for lever in other}
+            targets = [pid for pid, name in player_ids.items() if name in owners]
+            if targets:
+                definitions["ConditionDemandInput"]["properties"]["target"]["enum"] = targets
+        else:
+            fields["condition_demands"]["maxItems"] = 0
     fields["addressed_to"] = {"type": "string", "enum": [*ids, "everyone"],
                               "description": "Точный player_id; обращение ко всем — everyone"}
     if voting:
@@ -170,7 +217,7 @@ def player_turn_tool_schema(player_ids: dict, voting: bool = False,
         fields["addressed_to"]["enum"] = ["everyone"]
         for name in ("own_conditions", "pledge_demands", "condition_demands", "responses", "withdrawn_demands"):
             fields[name]["maxItems"] = 0
-        fields["vote"] = {"type": "string", "enum": ["for", "against", "abstain"]}
+        fields["vote"] = {"type": "string", "enum": ["for", "against"] + (["abstain"] if allow_abstain else [])}
     else:
         fields["vote"] = {"type": "string", "enum": ["none"]}
     return schema
@@ -197,9 +244,13 @@ def decode_player_turn_input(payload: dict, levers_config: list[dict] | None = N
 
     own_levers = {}
     for index, condition in enumerate(wire.own_conditions):
+        value = value_json(condition.value_json, f"own_conditions.{index}", condition.lever_id)
         if condition.lever_id in own_levers:
+            previous = own_levers[condition.lever_id]
+            if type(previous) is type(value) and previous == value:
+                continue
             raise ValueError(f"own_conditions.{index}.lever_id: повторное изменение одного условия")
-        own_levers[condition.lever_id] = value_json(condition.value_json, f"own_conditions.{index}", condition.lever_id)
+        own_levers[condition.lever_id] = value
     demands = [{"target": demand.target, "demand_type": "pledge", "lever_id": None,
                 "value": demand.amount_millions, "text": demand.text,
                 "counter_to": demand.counter_to or None} for demand in wire.pledge_demands]
@@ -248,6 +299,11 @@ def normalize_player_turn(payload: dict, player_ids: dict,
             replace(record, key, aliases[value][0], path)
 
     if any(key in normalized for key in ("own_contribution", "pledge_demands", "condition_demands", "own_conditions")):
+        offer = normalized.get("own_contribution")
+        if isinstance(offer, dict) and offer.get("action") == "unchanged":
+            amount = offer.get("amount_millions")
+            if type(amount) in (int, float) and amount > 0:
+                replace(offer, "amount_millions", 0, "own_contribution.amount_millions")
         for key, sentinel in (("addressed_to", "everyone"), ("vote", "none")):
             if key in normalized:
                 value = normalized[key]
@@ -283,13 +339,15 @@ def normalize_player_turn(payload: dict, player_ids: dict,
 
 
 def player_turn_examples(player_ids: dict, levers_config: list[dict], voting: bool,
-                         speaker: str | None = None) -> str:
+                         speaker: str | None = None, *, allow_abstain: bool = True) -> str:
     """Полные образцы синтаксиса, не готовые решения за участника."""
     empty = {"speech": "Публичная позиция участника.",
              "own_contribution": {"action": "unchanged", "amount_millions": 0},
              "own_conditions": [], "pledge_demands": [], "condition_demands": [],
              "responses": [], "withdrawn_demands": [],
-             "addressed_to": "everyone", "vote": "abstain" if voting else "none"}
+             "addressed_to": "everyone", "vote": "none"}
+    if voting:
+        empty["vote"] = "abstain" if allow_abstain else "against"
     examples = {"голосование" if voting else "без действий": empty}
     if not voting:
         target = next((pid for pid, name in player_ids.items() if name != speaker), None)

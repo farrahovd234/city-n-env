@@ -17,7 +17,8 @@ DECISIONS = {"accept": "принято", "reject": "отклонено", "counte
 
 
 def illustration(outcome_id: str) -> Path | None:
-    if outcome_id in OUTCOMES:
+    # Preserve image URLs already present in exported reports.
+    if outcome_id in OUTCOMES or outcome_id in {"holding_paid", "city_paid"}:
         path = ROOT / "assets" / "consequences" / f"{outcome_id}.png"
         if path.is_file():
             return path
@@ -106,6 +107,8 @@ def completed_game(raw: dict, turns: list[dict], images: bool) -> dict:
         "transcript": turns,
         "negotiation_report_markdown": raw["report"],
         "consequences": {
+            "model_version": prediction["model_version"],
+            "financial_load": prediction["financial_load"],
             "outcome_id": outcome_id,
             "outcome_title": outcome["name"],
             "executed_rub": prediction["paid"],
