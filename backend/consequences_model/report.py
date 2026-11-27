@@ -161,8 +161,9 @@ def render_report(result: dict[str, Any]) -> str:
 
 
 def render_herald_text(result: dict[str, Any]) -> str:
-    """Один абзац о том, что произошло в городе по итогам партии."""
+    """Живая газетная заметка одним абзацем о том, каким стал город N через 10 лет."""
     outcome, protocol = result["outcome"], result["protocol"]
+    outcome_id = outcome["id"]
     conditions = result["execution"]["conditions"]
     pledged = sum(protocol["contributions"].values())
     if not protocol["accepted"]:
@@ -170,6 +171,8 @@ def render_herald_text(result: dict[str, Any]) -> str:
                      "обновлённых очистных."]
         if pledged:
             sentences.append(f"На стройку обещали {mln(pledged)}, но в общую смету не поступило ни рубля.")
+        else:
+            sentences.append("Согласовать распределение общей сметы сторонам так и не удалось.")
         measures = {
             WATER: "мэрия частично организовала подвоз питьевой воды",
             PLANT_MODE: "холдинг частично снизил мощность комбината",
@@ -180,6 +183,19 @@ def render_herald_text(result: dict[str, Any]) -> str:
             sentences.append("При этом " + ", ".join(started) + ".")
         else:
             sentences.append("Самостоятельных мер по реке и питьевой воде стороны не предприняли.")
+        if outcome_id == "each_for_self":
+            sentences.append(
+                "Однако без единого бюджета реконструкция так и осталась на бумаге: город и предприятие "
+                "действуют порознь, закрывая лишь самые острые локальные задачи. Река восстанавливается медленно, "
+                "жители по-прежнему не доверяют отчётам, а спор о финансировании остаётся нерешённым спустя десятилетие."
+            )
+        else:
+            sentences.append(
+                "Изношенные сооружения продолжают сбрасывать в реку неочищенные стоки, набережная пустеет "
+                "при малейшем запахе с промзоны, а взаимные упрёки мэрии и комбината тянутся из года в год. "
+                "Доверие горожан к местной власти подорвано, и каждый новый сезон лишь усиливает напряжение "
+                "вокруг градообразующего предприятия."
+            )
         return " ".join(sentences)
 
     month, promised = result["commissioning_month"], result["promised_months"]
@@ -200,7 +216,7 @@ def render_herald_text(result: dict[str, Any]) -> str:
     sentences = [lead, funding]
     if not meets_funding_threshold(paid, total):
         sentences.append("Этой суммы не хватило для завершения стройки.")
-    if outcome["id"] == "without_residents":
+    if outcome_id == "without_residents":
         sentences.append("Жители и НКО не поддержали протокол на голосовании.")
 
     water = conditions.get(WATER)
@@ -214,7 +230,7 @@ def render_herald_text(result: dict[str, Any]) -> str:
         else:
             sentences.append("На время задержки подвоз питьевой воды не организовали.")
 
-    if outcome["id"] == "compromise" and water != PARTIAL:
+    if outcome_id == "compromise" and water != PARTIAL:
         partial = next((CONDITIONS[condition]["label"] for condition, level in conditions.items() if level == PARTIAL), None)
         if partial:
             sentences.append(f"Условие «{partial}» выполнили лишь частично.")
@@ -223,8 +239,37 @@ def render_herald_text(result: dict[str, Any]) -> str:
 
     if conditions.get(SENSORS) == FULL:
         sentences.append("Открытые датчики публикуют замеры реки, и жители могут сами посмотреть данные.")
-    elif outcome["id"] == "closed_data":
+    elif outcome_id == "closed_data":
         sentences.append("У жителей по-прежнему нет полных открытых данных о состоянии реки.")
+
+    epilogues = {
+        "open_river": (
+            "Набережная вновь стала центром городской жизни: затраты разделили между участниками, "
+            "публичные замеры заметно снизили негатив к холдингу, а доверие к администрации вернулось при сохранении рабочих мест."
+        ),
+        "closed_data": (
+            "Хотя вода стала заметно чище и очистные справляются с нагрузкой, закрытость замеров порождает слухи: "
+            "горожане с недоверием смотрят на официальные отчёты, а репутационный фон вокруг холдинга остаётся насторожённым."
+        ),
+        "without_residents": (
+            "Решение провели без согласия горожан и эко-активистов, поэтому даже на фоне идущих работ оно "
+            "воспринимается как навязанное сверху: протестная повестка не утихает, а экологический вопрос остаётся политизированным."
+        ),
+        "dolgostroy": (
+            "Затянувшиеся сроки и перебои с водой в годы ожидания истощили терпение горожан: даже после запуска "
+            "оборудования доверие к властям и подрядчикам восстанавливается с трудом, а память о долгострое ещё долго определяет настроение в городе."
+        ),
+        "nedostroy": (
+            "Застывшая стройка на берегу стала символом сорванных обещаний: временные меры к десятому году иссякли, "
+            "неочищенные стоки продолжают поступать в реку, а вокруг комбината и мэрии не утихает затяжной конфликт."
+        ),
+        "compromise": (
+            "Итоговое решение далось путём взаимных уступок: не все условия сработали в полном объёме, "
+            "но город получил обновлённые очистные и сумел удержать баланс между состоянием реки, тарифами и стабильностью работы предприятия."
+        ),
+    }
+    if outcome_id in epilogues:
+        sentences.append(epilogues[outcome_id])
     return " ".join(sentences)
 
 

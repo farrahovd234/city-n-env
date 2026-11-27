@@ -19,6 +19,8 @@ services:
       - "127.0.0.1:${CITY_N_HTTP_PORT:-8000}:8000"
     volumes:
       - game-data:/var/lib/city-n
+      - ./frontend:/app/frontend:ro
+      - ./backend/consequences_model:/app/backend/consequences_model:ro
     healthcheck:
       test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/scenario', timeout=2).close()"]
       interval: 10s
