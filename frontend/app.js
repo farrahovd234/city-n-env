@@ -281,7 +281,22 @@
         this.navigate('start');
       };
       this.bindAutoHideScrollbars();
+      this.initStartSlideshow();
       void this.restore();
+    }
+
+    initStartSlideshow() {
+      const slides = Array.from(document.querySelectorAll('#start-art .start-slide'));
+      if (slides.length < 2) return;
+      let current = 0;
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+      setInterval(() => {
+        if (this.currentScreen !== 'start' || document.hidden || reduced.matches) return;
+        const next = (current + 1) % slides.length;
+        slides[current].classList.remove('active');
+        slides[next].classList.add('active');
+        current = next;
+      }, 3800);
     }
 
     bindAutoHideScrollbars() {
